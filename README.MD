@@ -1,0 +1,46 @@
+# BiliClient
+# Intro
+
+## Usage
+### 创建Client
+`创建默认Cookie的Client`
+~~~go
+
+client := NewAnonymousClient()
+~~~
+`使用指定Cookie创建Client`
+~~~go
+client := NewClient("")
+~~~
+### 直播相关
+
+~~~go
+func (client BiliClient) GetGuardByPage(room string, liver string, page int) []LiveUser{} //分页获取大航海成员
+func (client BiliClient) GetFansClub(liver string, delay int, onError func(msg string)){} []LiveUser //分页获取粉丝团成员
+func (client BiliClient) GetOnline(room string, liver string) []LiveUser //获取直播间在线用户
+func (client BiliClient) GetLiveStream(room string) string //获取直播流
+func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {} //当直播间有消息或者状态改变时会触发回调
+~~~
+
+
+### 视频相关
+~~~go
+func (client BiliClient) GetVideo(bv string) (result []Video) //解析视频，如果有分p视频，则一并返回
+func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (result []Video) //获取用户的稿件
+func (client BiliClient) GetVideoStream(bv string, part int) []string {} //获取视频流
+
+~~~
+
+### 空间相关
+~~~go
+func (client BiliClient) GetCollection(user string, page int) map[string]string //获取用户收藏夹列表
+func (client BiliClient) GetFollowing(user string, delay int) map[string]string  //获取用户关注列表
+func (client *BiliClient) GetDynamicsByUser(user string,cursor string) []Archive string //获取用户动态
+
+~~~
+
+# Referer
+接口文档：[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
+<br/>
+wbi算法：[CuteReimu/bilibili/](https://github.com/CuteReimu/bilibili/)
+dm算法：[src](https://github.com/guozhigq/pilipala/blob/34fb5802710e4ccd21a4b536518595a6580d40d5/lib/http/member.dart#L77)
