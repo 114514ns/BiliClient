@@ -4,12 +4,5 @@ package main
 // the <icon src="AllIcons.Actions.Execute"/> icon in the gutter and select the <b>Run</b> menu item from here.</p>
 
 func main() {
-	client := NewAnonymousClient()
-	/*
-		client.TraceLive("544853", func(action FrontLiveAction) {
-			fmt.Println(action)
-		}, nil)
 
-	*/
-	//array, offset := client.GetDynamicsByUser("2", "")
 }

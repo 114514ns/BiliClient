@@ -5,6 +5,7 @@ import (
 	"fmt"
 	url2 "net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,7 +29,7 @@ type Comment struct {
 	Avatar string
 }
 
-func (client BiliClient) GetCollection(user string, page int) map[string]string {
+func (client *BiliClient) GetCollection(user string, page int) map[string]string {
 	var url = fmt.Sprintf("https://api.bilibili.com/x/v3/fav/folder/created/list?ps=50&pn=%d&up_mid=%s", page, user)
 	res, _ := client.Resty.R().Get(url)
 	var list = CollectionList{}
@@ -39,7 +40,7 @@ func (client BiliClient) GetCollection(user string, page int) map[string]string 
 	}
 	return m
 }
-func (client BiliClient) GetFollowing(user string, delay int) map[string]string {
+func (client *BiliClient) GetFollowing(user string, delay int) map[string]string {
 	var m = make(map[string]string)
 	page := 1
 	for true {
@@ -55,7 +56,7 @@ func (client BiliClient) GetFollowing(user string, delay int) map[string]string 
 	}
 	return m
 }
-func (client BiliClient) GetFollowingByPage(user string, page int) map[string]string {
+func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]string {
 	resp, err := client.Resty.R().Get("https://line3-h5-mobile-api.biligame.com/game/center/h5/user/relationship/following_list?vmid=" + string(user) + "&ps=50&pn=" + strconv.Itoa(page))
 	if err != nil {
 		fmt.Println(err)
@@ -130,7 +131,7 @@ func ParseDynamic(item DynamicItem) (Archive, Archive) {
 	}
 	return archive, orig
 }
-func (client BiliClient) GetComment(oid string, cursor string) []Comment {
+func (client *BiliClient) GetComment(oid string, cursor string) []Comment {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/wbi/main?oid=%s&type=%d&mode=%d&pagination_str=%s", oid, 11, 3, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
 	url, _ := url2.Parse(u)
 	signed, _ := client.WBI.SignQuery(url.Query(), time.Now())
@@ -153,7 +154,7 @@ func (client BiliClient) GetComment(oid string, cursor string) []Comment {
 	}
 	return list
 }
-func (client BiliClient) GetReply(oid string, root string, page int) []Comment {
+func (client *BiliClient) GetReply(oid string, root string, page int) []Comment {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/reply?oid=%s&type=%d&root=%s&ps=10&pn=%d&web_location=333.1365", oid, 11, root, page)
 	obj := CommentResponse{}
 	res, _ := client.Resty.R().Get(u)
@@ -173,5 +174,20 @@ func (client BiliClient) GetReply(oid string, root string, page int) []Comment {
 	}
 
 	return list
+
+}
+
+func (client *BiliClient) SetAnnouce(content string) {
+	split := strings.Split(client.Cookie, ";")
+	jct := ""
+	for _, s := range split {
+		if strings.Contains(s, "bili_jct=") {
+			jct = strings.Replace(s, "bili_jct=", "", 1)
+		}
+	}
+	jct = jct[1:len(jct)]
+	body := fmt.Sprintf("notice=%s&csrf=%s", url2.QueryEscape(content), jct)
+	var req = client.Resty.R().SetHeader("Content-Type", "application/x-www-form-urlencoded").SetBody(body)
+	req.Post("https://api.bilibili.com/x/space/notice/set")
 
 }
