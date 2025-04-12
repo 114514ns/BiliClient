@@ -1,4 +1,4 @@
-package main
+package bili
 
 import (
 	"encoding/base64"

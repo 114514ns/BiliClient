@@ -1,4 +1,4 @@
-package main
+package bili
 
 type GuardListResponse struct {
 	Data struct {

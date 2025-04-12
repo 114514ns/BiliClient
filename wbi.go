@@ -1,4 +1,4 @@
-package main
+package bili
 
 import (
 	"crypto/md5"
