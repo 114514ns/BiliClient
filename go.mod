@@ -1,4 +1,4 @@
-module BiliClient
+module github.com/114514ns/BiliClient
 
 go 1.24
 
