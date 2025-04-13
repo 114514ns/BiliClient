@@ -9,7 +9,18 @@ import (
 	"time"
 )
 
+type CommentType0 struct {
+	Video   int
+	Dynamic int
+}
+
+var CommentType = CommentType0{
+	Video:   1,
+	Dynamic: 17,
+}
+
 type Archive struct {
+	Aid    int64
 	UName  string
 	UID    int64
 	Images []string
@@ -20,13 +31,15 @@ type Archive struct {
 	BV     string
 }
 type Comment struct {
-	UName  string
-	UID    int64
-	Text   string
-	Time   time.Time
-	Like   int
-	Reply  int
-	Avatar string
+	UName   string
+	UID     int64
+	Text    string
+	Time    time.Time
+	Like    int
+	Replys  int
+	Avatar  string
+	Reply   []Comment
+	ReplyID int64
 }
 
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
@@ -92,6 +105,7 @@ func ParseDynamic(item DynamicItem) (Archive, Archive) {
 	var archive = Archive{}
 	archive.UName = userName
 	archive.UID = item.Modules.ModuleAuthor.Mid
+	archive.Aid, _ = strconv.ParseInt(item.IDStr, 10, 64)
 	if Type == "DYNAMIC_TYPE_FORWARD" { //转发
 		archive.Type = "f"
 		archive.ID = item.IDStr
@@ -131,8 +145,20 @@ func ParseDynamic(item DynamicItem) (Archive, Archive) {
 	}
 	return archive, orig
 }
-func (client *BiliClient) GetComment(oid string, cursor string) []Comment {
-	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/wbi/main?oid=%s&type=%d&mode=%d&pagination_str=%s", oid, 11, 3, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
+func parseComment(reply ReplyInternalResponse) Comment {
+	var comment = Comment{}
+	comment.UID = reply.Mid
+	comment.Text = reply.Content.Message
+	comment.UName = reply.Member.Uname
+	comment.Avatar = reply.Member.Avatar
+	comment.ReplyID = reply.ReplyID
+	comment.Like = reply.Like
+	comment.Replys = len(reply.Replies)
+	comment.Time = time.Unix(int64(reply.Ctime), 0)
+	return comment
+}
+func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comment {
+	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/wbi/main?oid=%d&type=%d&mode=%d&pagination_str=%s", oid, type0, 3, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
 	url, _ := url2.Parse(u)
 	signed, _ := client.WBI.SignQuery(url.Query(), time.Now())
 	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/v2/reply/wbi/main?" + signed.Encode())
@@ -143,19 +169,24 @@ func (client *BiliClient) GetComment(oid string, cursor string) []Comment {
 		var comment = Comment{}
 		comment.UID = reply.Mid
 		comment.Text = reply.Content.Message
+		comment.ReplyID = reply.ReplyID
 		comment.UName = reply.Member.Uname
 		comment.Avatar = reply.Member.Avatar
 		comment.Like = reply.Like
-		comment.Reply = len(reply.Replies)
+		comment.Replys = reply.Count
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
+		comment.Reply = make([]Comment, 0)
+		for _, response := range reply.Replies {
+			comment.Reply = append(comment.Reply, parseComment(response))
+		}
 
 		list = append(list, comment)
 
 	}
 	return list
 }
-func (client *BiliClient) GetReply(oid string, root string, page int) []Comment {
-	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/reply?oid=%s&type=%d&root=%s&ps=10&pn=%d&web_location=333.1365", oid, 11, root, page)
+func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) []Comment {
+	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/reply?oid=%d&type=%d&root=%d&ps=10&pn=%d&web_location=333.1365", oid, type0, root, page)
 	obj := CommentResponse{}
 	res, _ := client.Resty.R().Get(u)
 	json.Unmarshal(res.Body(), &obj)
@@ -167,7 +198,7 @@ func (client *BiliClient) GetReply(oid string, root string, page int) []Comment 
 		comment.UName = reply.Member.Uname
 		comment.Avatar = reply.Member.Avatar
 		comment.Like = reply.Like
-		comment.Reply = len(reply.Replies)
+		comment.Replys = len(reply.Replies)
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
 
 		list = append(list, comment)
@@ -190,4 +221,24 @@ func (client *BiliClient) SetAnnouce(content string) {
 	var req = client.Resty.R().SetHeader("Content-Type", "application/x-www-form-urlencoded").SetBody(body)
 	req.Post("https://api.bilibili.com/x/space/notice/set")
 
+}
+
+func (client *BiliClient) GetFansMedal(id string) []Medal {
+	u := "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall?target_id=" + id
+	res, _ := client.Resty.R().Get(u)
+	obj := FansWallListResponse{}
+	json.Unmarshal(res.Body(), &obj)
+	list := make([]Medal, 0)
+	for _, s := range obj.Data.List {
+		medal := Medal{}
+		medal.Level = int8(s.MedalInfo.Level)
+		medal.Name = s.MedalInfo.MedalName
+		medal.GuardLevel = int8(s.MedalInfo.GuardLevel)
+		medal.Color = s.MedalInfo.UinfoMedal.V2MedalColorStart
+		medal.LiverUID = s.MedalInfo.TargetId
+		medal.LiverName = s.MedalInfo.MedalName
+		list = append(list, medal)
+
+	}
+	return list
 }

@@ -35,7 +35,7 @@ func setupClient(client *BiliClient, cookie string) {
 	if cookie == "" {
 		r, _ := client.Resty.R().Get("https://space.bilibili.com/208259/")
 		for _, s := range r.Header().Values("Set-Cookie") {
-			cookie += strings.Split(s, ";")[0]
+			cookie += strings.Split(s, ";")[0] + ";"
 		}
 		cookie = cookie[0 : len(cookie)-1]
 	}
@@ -48,6 +48,17 @@ func setupClient(client *BiliClient, cookie string) {
 	client.WBI.WithRawCookies(cookie)
 	client.WBI.doInitWbi()
 	client.UID = client.selfUID()
+}
+func (client *BiliClient) CSRF() string {
+	split := strings.Split(client.Cookie, ";")
+	jct := ""
+	for _, s := range split {
+		if strings.Contains(s, "bili_jct=") {
+			jct = strings.Replace(s, "bili_jct=", "", 1)
+		}
+	}
+	jct = jct[1:len(jct)]
+	return jct
 }
 func (client BiliClient) selfUID() int64 {
 	res, _ := client.Resty.R().SetHeader("Cookie", client.Cookie).Get("https://api.bilibili.com/x/web-interface/nav")

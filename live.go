@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+type Medal struct {
+	Name          string `json:"medal_name"`
+	Level         int8   `json:"level"`
+	ColorDec      int    `json:"medal_color_start"`
+	ColorInternal string `json:"v2_medal_color_start"`
+	GuardLevel    int8
+	Color         string
+	LiverUID      int64
+	LiverName     string
+}
 type LiveUser struct {
 	UID   int64  `json:"uid"`
 	Name  string `json:"name"`
@@ -16,14 +26,7 @@ type LiveUser struct {
 	Guard int8   `json:"guard_level"`
 	Days  int16  `json:"days"`
 	Score int
-	Medal struct {
-		Name          string `json:"medal_name"`
-		Level         int8   `json:"level"`
-		ColorDec      int    `json:"medal_color_start"`
-		ColorInternal string `json:"v2_medal_color_start"`
-		GuardLevel    int8
-		Color         string
-	} `json:"medal_info"`
+	Medal Medal `json:"medal_info"`
 }
 type Area struct {
 	ParentName string

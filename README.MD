@@ -36,7 +36,9 @@ func (client BiliClient) GetVideoStream(bv string, part int) []string {} //获�
 func (client BiliClient) GetCollection(user string, page int){} map[string]string //获取用户收藏夹列表
 func (client BiliClient) GetFollowing(user string, delay int){} map[string]string  //获取用户关注列表
 func (client *BiliClient) GetDynamicsByUser(user string,cursor string){} []Archive string //获取用户动态
-func (client *BiliClient) SetAnnouce(content string) //设置主页公告
+func (client *BiliClient) SetAnnouce(content string){} //设置主页公告
+func (client *BiliClient) GetFansMedal(id string){} []Medal //获取用户粉丝牌
+func (client *BiliClient) GetComment(oid int64, cursor string, type0 int){} []Comment //获取评论
 
 ~~~
 

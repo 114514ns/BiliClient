@@ -196,6 +196,7 @@ type VideoResponse struct {
 			Share    int `json:"share"`
 			Like     int `json:"like"`
 			Danmaku  int `json:"danmaku"`
+			Aid      int `json:"aid"`
 			Favorite int `json:"favorite"`
 		} `json:"stat"`
 		Pages []struct {
@@ -463,6 +464,45 @@ type SelfInfo struct {
 		Mid int64 `json:"mid"`
 	} `json:"data"`
 }
+type ReplyInternalResponse struct {
+	ReplyID   int64  `json:"rpid"`
+	Oid       int64  `json:"oid"`
+	Type      int    `json:"type"`
+	Mid       int64  `json:"mid"`
+	Root      int    `json:"root"`
+	Parent    int    `json:"parent"`
+	Count     int    `json:"count"`
+	Rcount    int    `json:"rcount"`
+	State     int    `json:"state"`
+	Attr      int    `json:"attr"`
+	Ctime     int    `json:"ctime"`
+	MidStr    string `json:"mid_str"`
+	OidStr    string `json:"oid_str"`
+	RootStr   string `json:"root_str"`
+	ParentStr string `json:"parent_str"`
+	Like      int    `json:"like"`
+	Member    struct {
+		Mid       string `json:"mid"`
+		Uname     string `json:"uname"`
+		Avatar    string `json:"avatar"`
+		LevelInfo struct {
+			CurrentLevel int `json:"current_level"`
+		} `json:"level_info"`
+	} `json:"member"`
+	Content struct {
+		Message string        `json:"message"`
+		Members []interface{} `json:"members"`
+		JumpUrl struct {
+		} `json:"jump_url"`
+		Pictures []struct {
+			ImgSrc string `json:"img_src"`
+		} `json:"pictures,omitempty"`
+		PictureScale float64 `json:"picture_scale,omitempty"`
+	} `json:"content"`
+	Replies      []ReplyInternalResponse `json:"replies"`
+	DynamicIdStr string                  `json:"dynamic_id_str"`
+	DynamicId    int64                   `json:"dynamic_id,omitempty"`
+}
 type CommentResponse struct {
 	Message string `json:"message"`
 	Data    struct {
@@ -481,56 +521,133 @@ type CommentResponse struct {
 			SupportMode []int  `json:"support_mode"`
 			Name        string `json:"name"`
 		} `json:"cursor"`
-		Replies []struct {
-			Rpid      int64  `json:"rpid"`
-			Oid       int64  `json:"oid"`
-			Type      int    `json:"type"`
-			Mid       int64  `json:"mid"`
-			Root      int    `json:"root"`
-			Parent    int    `json:"parent"`
-			Dialog    int    `json:"dialog"`
-			Count     int    `json:"count"`
-			Rcount    int    `json:"rcount"`
-			State     int    `json:"state"`
-			Fansgrade int    `json:"fansgrade"`
-			Attr      int    `json:"attr"`
-			Ctime     int    `json:"ctime"`
-			MidStr    string `json:"mid_str"`
-			OidStr    string `json:"oid_str"`
-			RpidStr   string `json:"rpid_str"`
-			RootStr   string `json:"root_str"`
-			ParentStr string `json:"parent_str"`
-			DialogStr string `json:"dialog_str"`
-			Like      int    `json:"like"`
-			Action    int    `json:"action"`
-			Member    struct {
-				Mid       string `json:"mid"`
-				Uname     string `json:"uname"`
-				Avatar    string `json:"avatar"`
-				LevelInfo struct {
-					CurrentLevel int `json:"current_level"`
-				} `json:"level_info"`
-			} `json:"member"`
-			Content struct {
-				Message string        `json:"message"`
-				Members []interface{} `json:"members"`
-				JumpUrl struct {
-				} `json:"jump_url"`
-				Pictures []struct {
-					ImgSrc string `json:"img_src"`
-				} `json:"pictures,omitempty"`
-				PictureScale float64 `json:"picture_scale,omitempty"`
-			} `json:"content"`
-			Replies      []interface{} `json:"replies"`
-			DynamicIdStr string        `json:"dynamic_id_str"`
-			DynamicId    int64         `json:"dynamic_id,omitempty"`
-		} `json:"replies"`
-		Upper struct {
+		Replies []ReplyInternalResponse `json:"replies"`
+		Upper   struct {
 			Mid int `json:"mid"`
 		} `json:"upper"`
 		Note             int         `json:"note"`
 		EsportsGradeCard interface{} `json:"esports_grade_card"`
 		Callbacks        interface{} `json:"callbacks"`
 		ContextFeature   string      `json:"context_feature"`
+	} `json:"data"`
+}
+type UserVideoListResponse struct {
+	Message string `json:"message"`
+	Data    struct {
+		List struct {
+			Vlist []struct {
+				Comment     int    `json:"comment"`
+				Typeid      int    `json:"typeid"`
+				Play        int    `json:"play"`
+				Pic         string `json:"pic"`
+				Subtitle    string `json:"subtitle"`
+				Description string `json:"description"`
+				Copyright   string `json:"copyright"`
+				Title       string `json:"title"`
+				Review      int    `json:"review"`
+				Author      string `json:"author"`
+				Mid         int64  `json:"mid"`
+				Created     int    `json:"created"`
+				Length      string `json:"length"`
+				VideoReview int    `json:"video_review"`
+				Aid         int64  `json:"aid"`
+				Bvid        string `json:"bvid"`
+			} `json:"vlist"`
+		} `json:"list"`
+		Page struct {
+			Pn    int `json:"pn"`
+			Ps    int `json:"ps"`
+			Count int `json:"count"`
+		} `json:"page"`
+	} `json:"data"`
+}
+type FansWallListResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Ttl     int    `json:"ttl"`
+	Data    struct {
+		List []struct {
+			MedalInfo struct {
+				TargetId   int64  `json:"target_id"`
+				Level      int    `json:"level"`
+				MedalName  string `json:"medal_name"`
+				GuardLevel int    `json:"guard_level"`
+				TargetName string `json:"target_name"`
+				UinfoMedal struct {
+					Name              string `json:"name"`
+					Level             int    `json:"level"`
+					ColorStart        int    `json:"color_start"`
+					ColorEnd          int    `json:"color_end"`
+					ColorBorder       int    `json:"color_border"`
+					Color             int    `json:"color"`
+					Id                int    `json:"id"`
+					Typ               int    `json:"typ"`
+					Ruid              int    `json:"ruid"`
+					GuardLevel        int    `json:"guard_level"`
+					V2MedalColorStart string `json:"v2_medal_color_start"`
+				} `json:"uinfo_medal"`
+			} `json:"list"`
+			Count           int    `json:"count"`
+			CloseSpaceMedal int    `json:"close_space_medal"`
+			OnlyShowWearing int    `json:"only_show_wearing"`
+			Name            string `json:"name"`
+			Icon            string `json:"icon"`
+			Uid             int    `json:"uid"`
+			Level           int    `json:"level"`
+		} `json:"data"`
+	}
+}
+type CollectionListResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Ttl     int    `json:"ttl"`
+	Data    struct {
+		ItemsLists struct {
+			Page struct {
+				PageNum  int `json:"page_num"`
+				PageSize int `json:"page_size"`
+				Total    int `json:"total"`
+			} `json:"page"`
+			SeasonsList []interface{} `json:"seasons_list"`
+			SeriesList  []struct {
+				Archives []struct {
+					Aid              int64  `json:"aid"`
+					Bvid             string `json:"bvid"`
+					Ctime            int    `json:"ctime"`
+					Duration         int    `json:"duration"`
+					EnableVt         bool   `json:"enable_vt"`
+					InteractiveVideo bool   `json:"interactive_video"`
+					Pic              string `json:"pic"`
+					PlaybackPosition int    `json:"playback_position"`
+					Pubdate          int    `json:"pubdate"`
+					Stat             struct {
+						View int `json:"view"`
+						Vt   int `json:"vt"`
+					} `json:"stat"`
+					State         int    `json:"state"`
+					Title         string `json:"title"`
+					UgcPay        int    `json:"ugc_pay"`
+					VtDisplay     string `json:"vt_display"`
+					IsLessonVideo int    `json:"is_lesson_video"`
+				} `json:"archives"`
+				Meta struct {
+					Category     int      `json:"category"`
+					Cover        string   `json:"cover"`
+					Creator      string   `json:"creator"`
+					Ctime        int      `json:"ctime"`
+					Description  string   `json:"description"`
+					Keywords     []string `json:"keywords"`
+					LastUpdateTs int      `json:"last_update_ts"`
+					Mid          int      `json:"mid"`
+					Mtime        int      `json:"mtime"`
+					Name         string   `json:"name"`
+					RawKeywords  string   `json:"raw_keywords"`
+					SeriesId     int      `json:"series_id"`
+					State        int      `json:"state"`
+					Total        int      `json:"total"`
+				} `json:"meta"`
+				RecentAids []int64 `json:"recent_aids"`
+			} `json:"series_list"`
+		} `json:"items_lists"`
 	} `json:"data"`
 }

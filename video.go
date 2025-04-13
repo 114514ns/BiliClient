@@ -15,6 +15,7 @@ import (
 )
 
 type Video struct {
+	Aid         int64
 	Title       string
 	Desc        string
 	Author      string
@@ -34,6 +35,7 @@ type Video struct {
 	Like        int
 	Danmaku     int
 	Favorite    int
+	Comment     int
 }
 
 func (client BiliClient) GetVideo(bv string) (result []Video) {
@@ -89,15 +91,31 @@ func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (result
 	var i interface{}
 	json.Unmarshal([]byte(access), &i)
 	m, _ := i.(map[string]interface{})
-	access, _ = m["name"].(string)
-	u := fmt.Sprintf("https://api.bilibili.com/x/space/wbi/arc/search?pn=42&ps=%d&mid=%d&order=%s&w_webid=%s&dm_img_list=[]&dm_img_str=%s&dm_cover_img_str=%s&dm_img_inter=%s", page, mid, order, access, dmImgStr, cover, inter)
+	access, _ = m["access_id"].(string)
+	u := fmt.Sprintf("https://api.bilibili.com/x/space/wbi/arc/search?pn=%d&ps=42&mid=%d&order=%s&w_webid=%s&dm_img_list=[]&dm_img_str=%s&dm_cover_img_str=%s&dm_img_inter=%s", page, mid, order, access, dmImgStr, cover, inter)
 	u1, _ := url.Parse(u)
 	signed, _ := client.WBI.SignQuery(u1.Query(), time.Now())
 	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/space/wbi/arc/search?" + signed.Encode())
-	var resObj = VideoResponse{}
+	var resObj = UserVideoListResponse{}
 	json.Unmarshal(res.Body(), &resObj)
-	fmt.Println(string(res.Body()))
-	return nil
+	list := make([]Video, 0)
+	for _, s := range resObj.Data.List.Vlist {
+		var video = Video{}
+		video.BV = s.Bvid
+		video.Author = s.Author
+		video.UID = s.Mid
+		video.Desc = s.Description
+		video.Title = s.Title
+		video.View = s.Play
+		video.Cover = s.Pic
+		video.Comment = s.Comment
+		video.Danmaku = s.VideoReview
+		video.PublishAt = time.Unix(int64(s.Created), 0).Format(time.DateTime)
+		video.Duration = s.Length
+		video.Aid = s.Aid
+		list = append(list, video)
+	}
+	return list
 }
 
 func (client BiliClient) GetVideoStream(bv string, part int) []string {

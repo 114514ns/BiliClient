@@ -3,7 +3,7 @@ module github.com/114514ns/BiliClient
 go 1.24
 
 require (
-	github.com/PuerkitoBio/goquery v1.10.2
+	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/andybalholm/brotli v1.1.1
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/gorilla/websocket v1.5.3
@@ -12,5 +12,5 @@ require (
 
 require (
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	golang.org/x/net v0.35.0
+	golang.org/x/net v0.39.0
 )

@@ -82,6 +82,17 @@ func (client BiliClient) FillGiftPrice(room string, area int, parent int) {
 	}
 }
 
+func (client *BiliClient) SendMessage(msg string, room int) {
+
+	u := "https://api.live.bilibili.com/msg/send?"
+	url3, _ := url.Parse(u)
+	signed, _ := client.WBI.SignQuery(url3.Query(), time.Now())
+	st := `{"appId":100,"platform":5}`
+	body := fmt.Sprintf("bubble=0&msg=%s&color=16777215&mode=1&room_type=0&jumpfrom=71001&reply_mid=0&reply_attr=0&replay_dmid=&statistics=%s&font_size=25&rnd=%d&roomid=%d&csrf=%s&csrf_token=%s", msg, st, time.Now().Unix()/1000, room, client.CSRF(), client.CSRF())
+	res, _ := client.Resty.R().SetHeader("Content-Type", "multipart/form-data; boundary=----WebKitFormBoundarytdNYxtgGKJBK9qSv").SetBody(body).Post("https://api.live.bilibili.com/msg/send?" + signed.Encode())
+	fmt.Println(res.String())
+}
+
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {
 	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room
 	res, _ := client.Resty.R().Get(url0)
