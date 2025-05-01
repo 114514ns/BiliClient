@@ -38,6 +38,10 @@ type Video struct {
 	Comment     int
 }
 
+func (v *Video) GetStream(client *BiliClient) []string {
+	return client.GetVideoStream(v.BV, 1)
+}
+
 func (client BiliClient) GetVideo(bv string) (result []Video) {
 	res, _ := client.Resty.R().
 		Get("https://api.bilibili.com/x/web-interface/view?bvid=" + bv)
@@ -68,7 +72,7 @@ func (client BiliClient) GetVideo(bv string) (result []Video) {
 
 	return array
 }
-func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (result []Video) {
+func (client *BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (result []Video) {
 	var order = "pubtime"
 	if byHot {
 		order = "click"
@@ -99,6 +103,9 @@ func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (result
 	var resObj = UserVideoListResponse{}
 	json.Unmarshal(res.Body(), &resObj)
 	list := make([]Video, 0)
+
+	e := appendDM(fmt.Sprintf("https://api.bilibili.com/x/space/wbi/arc/search?pn=%d&ps=42&mid=%d&order=%s", page, mid, "pubtime"), client)
+	fmt.Println(e)
 	for _, s := range resObj.Data.List.Vlist {
 		var video = Video{}
 		video.BV = s.Bvid
@@ -117,7 +124,9 @@ func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (result
 	}
 	return list
 }
-
+func (video *Video) getComments(cursor string, client *BiliClient) []Comment {
+	return client.GetComment(video.Aid, cursor, CommentType.Video)
+}
 func (client BiliClient) GetVideoStream(bv string, part int) []string {
 	os.Mkdir("cache", 066)
 	var videolink = "https://bilibili.com/video/" + bv + "?p=" + strconv.Itoa(part)

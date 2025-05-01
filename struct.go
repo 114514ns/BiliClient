@@ -175,6 +175,9 @@ type DynamicItem struct {
 			TimeStamp int64  `json:"pub_ts"`
 		} `json:"module_author"`
 	} `json:"modules"`
+	Base struct {
+		CommentID string `json:"comment_id_str"`
+	} `json:"basic"`
 	Type string `json:"type"`
 }
 type VideoResponse struct {
@@ -381,6 +384,7 @@ type LiveAction struct {
 	MedalName  string
 	MedalLevel int8
 	GuardLevel int8
+	HonorLevel int8
 }
 type FrontLiveAction struct {
 	LiveAction

@@ -36,10 +36,12 @@ type Comment struct {
 	Text    string
 	Time    time.Time
 	Like    int
-	Replys  int
+	Replies int
 	Avatar  string
 	Reply   []Comment
+	OID     int64
 	ReplyID int64
+	Type    int
 }
 
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
@@ -84,8 +86,8 @@ func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]s
 	return m
 }
 
-func (client *BiliClient) GetDynamicsByUser(user string, offset string) ([]Archive, string) {
-	url := "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?offset&host_mid=" + user + "&timezone_offset=-480&features=itemOpusStyle"
+func (client *BiliClient) GetDynamicsByUser(user int64, offset string) ([]Archive, string) {
+	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?offset&host_mid=%d&timezone_offset=-480&features=itemOpusStyle", user)
 	u, _ := url2.Parse(url)
 	signed, _ := client.WBI.SignQuery(u.Query(), time.Now())
 	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?" + signed.Encode())
@@ -93,19 +95,19 @@ func (client *BiliClient) GetDynamicsByUser(user string, offset string) ([]Archi
 	json.Unmarshal(res.Body(), &obj)
 	var archives = make([]Archive, 0)
 	for _, item := range obj.Data.Items {
-		p, _ := ParseDynamic(item)
+		p, _ := parseDynamc(item)
 		archives = append(archives, p)
 	}
 	return archives, obj.Data.Offset
 }
-func ParseDynamic(item DynamicItem) (Archive, Archive) {
+func parseDynamc(item DynamicItem) (Archive, Archive) {
 	var Type = item.Type
 	var orig = Archive{}
 	var userName = item.Modules.ModuleAuthor.Name
 	var archive = Archive{}
 	archive.UName = userName
 	archive.UID = item.Modules.ModuleAuthor.Mid
-	archive.Aid, _ = strconv.ParseInt(item.IDStr, 10, 64)
+	archive.Aid, _ = strconv.ParseInt(item.Base.CommentID, 10, 64)
 	if Type == "DYNAMIC_TYPE_FORWARD" { //转发
 		archive.Type = "f"
 		archive.ID = item.IDStr
@@ -114,7 +116,7 @@ func ParseDynamic(item DynamicItem) (Archive, Archive) {
 			txt = txt + node.Text
 			txt = txt + "\n"
 		}
-		//orig, _ = ParseDynamic(*item.Orig, false)
+		//orig, _ = parseDynamc(*item.Orig, false)
 		archive.Text = txt
 	} else if Type == "DYNAMIC_TYPE_AV" { //发布视频
 		archive.Type = "v"
@@ -153,7 +155,8 @@ func parseComment(reply ReplyInternalResponse) Comment {
 	comment.Avatar = reply.Member.Avatar
 	comment.ReplyID = reply.ReplyID
 	comment.Like = reply.Like
-	comment.Replys = len(reply.Replies)
+
+	comment.Replies = len(reply.Replies)
 	comment.Time = time.Unix(int64(reply.Ctime), 0)
 	return comment
 }
@@ -173,11 +176,15 @@ func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comm
 		comment.UName = reply.Member.Uname
 		comment.Avatar = reply.Member.Avatar
 		comment.Like = reply.Like
-		comment.Replys = reply.Count
+		comment.OID = oid
+		comment.Type = type0
+		comment.Replies = reply.Count
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
 		comment.Reply = make([]Comment, 0)
 		for _, response := range reply.Replies {
 			comment.Reply = append(comment.Reply, parseComment(response))
+			comment.OID = oid
+			comment.Type = type0
 		}
 
 		list = append(list, comment)
@@ -198,8 +205,10 @@ func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) [
 		comment.UName = reply.Member.Uname
 		comment.Avatar = reply.Member.Avatar
 		comment.Like = reply.Like
-		comment.Replys = len(reply.Replies)
+		comment.OID = oid
+		comment.Replies = len(reply.Replies)
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
+		comment.Type = type0
 
 		list = append(list, comment)
 	}
@@ -207,7 +216,16 @@ func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) [
 	return list
 
 }
-
+func (comment *Comment) GetReply(page int, client *BiliClient) []Comment {
+	return client.GetReply(comment.OID, comment.ReplyID, page, CommentType.Dynamic)
+}
+func (archive *Archive) GetComments(cursor string, client *BiliClient) []Comment {
+	t := CommentType.Dynamic
+	if archive.BV != "" {
+		t = CommentType.Video
+	}
+	return client.GetComment(archive.Aid, cursor, t)
+}
 func (client *BiliClient) SetAnnouce(content string) {
 	split := strings.Split(client.Cookie, ";")
 	jct := ""
@@ -241,4 +259,54 @@ func (client *BiliClient) GetFansMedal(id string) []Medal {
 
 	}
 	return list
+}
+func (client *BiliClient) GetStats(uid int64) map[string]int {
+	var m = make(map[string]int)
+	u := fmt.Sprintf("https://api.bilibili.com/x/space/upstat?mid=%d", uid)
+	res, _ := client.Resty.R().Get(u)
+	nextNumber(res.String(), strings.Index(res.String(), "view"))
+	m["view"] = int(nextNumber(res.String(), strings.Index(res.String(), "view")))
+	m["likes"] = int(nextNumber(res.String(), strings.Index(res.String(), "likes")))
+	u = fmt.Sprintf("Https://api.bilibili.com/x/relation/stat?vmid=%d", uid)
+	res, _ = client.Resty.R().Get(u)
+	m["follower"] = int(nextNumber(res.String(), strings.Index(res.String(), "follower")))
+	m["following"] = int(nextNumber(res.String(), strings.Index(res.String(), "following")))
+	return m
+
+}
+func (client *BiliClient) getUser(id int64) {
+	u := appendWts("https://api.bilibili.com/x/space/wbi/acc/info?mid="+toString(id), client)
+	res, _ := client.Resty.R().Get(u)
+	fmt.Println(res.String())
+}
+
+func (client *BiliClient) getBatchFace(id []int64) {
+	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[["
+	for i, i2 := range id {
+		s = s + strconv.FormatInt(i2, 10)
+		if i != len(id)-1 {
+			s = s + ","
+		}
+	}
+	s = s + `],true,""]`
+	fmt.Println(s)
+}
+func (client *BiliClient) GetFace(id int64) string {
+	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[[" + strconv.FormatInt(id, 10)
+	s = s + `],true,""]`
+	res, _ := client.Resty.R().Get(s)
+	type Response struct {
+		TsRpcReturn struct {
+			Data map[string]struct {
+				UID   string `json:"uid"`
+				UName string `json:"uname"`
+				Face  string `json:"face"`
+			} `json:"data"`
+		} `json:"_ts_rpc_return_"`
+	}
+
+	var r = Response{}
+	json.Unmarshal(res.Body(), &r)
+
+	return "https:" + r.TsRpcReturn.Data[strconv.FormatInt(id, 10)].Face
 }

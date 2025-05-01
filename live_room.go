@@ -82,15 +82,25 @@ func (client BiliClient) FillGiftPrice(room string, area int, parent int) {
 	}
 }
 
-func (client *BiliClient) SendMessage(msg string, room int) {
+func (client *BiliClient) SendMessage(msg string, room int, onResponse func(string)) {
 
-	u := "https://api.live.bilibili.com/msg/send?"
-	url3, _ := url.Parse(u)
-	signed, _ := client.WBI.SignQuery(url3.Query(), time.Now())
+	//u := "https://api.live.bilibili.com/msg/send?"
+	//url3, _ := url.Parse(u)
+	//signed, _ := client.WBI.SignQuery(url3.Query(), time.Now())
 	st := `{"appId":100,"platform":5}`
-	body := fmt.Sprintf("bubble=0&msg=%s&color=16777215&mode=1&room_type=0&jumpfrom=71001&reply_mid=0&reply_attr=0&replay_dmid=&statistics=%s&font_size=25&rnd=%d&roomid=%d&csrf=%s&csrf_token=%s", msg, st, time.Now().Unix()/1000, room, client.CSRF(), client.CSRF())
-	res, _ := client.Resty.R().SetHeader("Content-Type", "multipart/form-data; boundary=----WebKitFormBoundarytdNYxtgGKJBK9qSv").SetBody(body).Post("https://api.live.bilibili.com/msg/send?" + signed.Encode())
+	body := fmt.Sprintf("bubble=0&msg=%s&color=16777215&mode=1&room_type=0&jumpfrom=71001&reply_mid=0&reply_attr=0&replay_dmid=&statistics=%s&fontsize=25&rnd=%d&roomid=%d&csrf=%s&csrf_token=%s", msg, st, time.Now().Unix()/1000, room, client.CSRF(), client.CSRF())
+	res, _ := client.Resty.R().SetHeader("Content-Type", "application/x-www-form-urlencoded").SetBody(body).Post("https://api.live.bilibili.com/msg/send?" /*+ signed.Encode()*/)
 	fmt.Println(res.String())
+	if onResponse != nil {
+		onResponse(res.String())
+	}
+}
+
+func (client *BiliClient) GetHistory(room int, onResponse func(string)) {
+
+	//var u = "https://api.live.bilibili.com/xlive/web-room/v1/dM/gethistory?roomid=" + strconv.Itoa(room)
+	//res, _ := client.Resty.R().Get(u)
+
 }
 
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {
@@ -172,6 +182,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					action.ActionName = "msg"
 					action.FromName = text.Info[2].([]interface{})[1].(string)
 					action.FromId = strconv.Itoa(int(text.Info[2].([]interface{})[0].(float64)))
+					action.HonorLevel = int8(text.Info[16].([]interface{})[0].(float64))
 					action.Extra = text.Info[1].(string)
 					value, ok := text.Info[0].([]interface{})[15].(map[string]interface{})
 					if ok {
@@ -273,10 +284,13 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					json.Unmarshal(msgData, &obj)
 				} else {
 					parsed = false
+
 				}
 				front.LiveAction = action
 				if parsed {
-					onMessage(front)
+					if onMessage != nil {
+						onMessage(front)
+					}
 				}
 				if buffer.Len() < 16 {
 					break

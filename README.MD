@@ -39,7 +39,7 @@ func (client *BiliClient) GetDynamicsByUser(user string,cursor string){} []Archi
 func (client *BiliClient) SetAnnouce(content string){} //设置主页公告
 func (client *BiliClient) GetFansMedal(id string){} []Medal //获取用户粉丝牌
 func (client *BiliClient) GetComment(oid int64, cursor string, type0 int){} []Comment //获取评论
-
+func (client *BiliClient) GetStats(uid int64){} map[string]int //获取用户稿件播放量和关注，粉丝量
 ~~~
 
 # Referer

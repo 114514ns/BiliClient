@@ -144,7 +144,7 @@ func (client BiliClient) GetLiveStream(room string) string {
 
 	uri, _ := url.Parse("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?qn=10000&protocol=0,1&format=0,1,2&codec=0,1,2&web_location=444.8&room_id=" + room)
 	signed, _ := client.WBI.SignQuery(uri.Query(), now)
-	res, _ := client.Resty.R().SetHeader("Cookie", client.Cookie).Get("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?" + signed.Encode())
+	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?" + signed.Encode())
 	var s = LiveStreamResponse{}
 	json.Unmarshal(res.Body(), &s)
 	stream := s.Data.PlayurlInfo.Playurl.Stream
