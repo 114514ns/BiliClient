@@ -350,12 +350,13 @@ type GiftInfo struct {
 		} `json:"sender_uinfo"`
 		UID   int `json:"uid"`
 		Medal struct {
-			Name  string `json:"name"`
-			Level int    `json:"level"`
+			Name  string `json:"medal_name"`
+			Level int    `json:"medal_level"`
 			Color int    `json:"medal_color"`
-		}
-		Uname string `json:"uname"`
-		Face  string `json:"face"`
+		} `json:"medal_info"`
+		Uname      string `json:"uname"`
+		Face       string `json:"face"`
+		HonorLevel int8   `json:"wealth_level"`
 	} `json:"data"`
 }
 type LiveText struct {
@@ -392,6 +393,7 @@ type FrontLiveAction struct {
 	UUID        string
 	MedalColor  string
 	GiftPicture string
+	Emoji       map[string]string
 }
 type RoomInfo struct {
 	Data struct {

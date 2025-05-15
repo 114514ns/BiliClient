@@ -178,13 +178,37 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				json.Unmarshal(msgData, &text)
 				var front = FrontLiveAction{}
 				parsed := true
+				front.Emoji = make(map[string]string)
 				if strings.Contains(obj, "DANMU_MSG") && !strings.Contains(obj, "RECALL_DANMU_MSG") { // 弹幕
 					action.ActionName = "msg"
 					action.FromName = text.Info[2].([]interface{})[1].(string)
+					e1, ok := text.Info[0].([]interface{})[13].(map[string]interface{})
+					if ok {
+						e2, ok := e1["emoticon_unique"].(string)
+						if ok {
+							front.Emoji[strings.Replace(e2, "upower_", "", 1)] = e1["url"].(string)
+						}
+					}
+
+					var o interface{}
+					json.Unmarshal([]byte(text.Info[0].([]interface{})[15].(map[string]interface{})["extra"].(string)), &o)
+					e, ok := o.(map[string]interface{})["emots"]
+					if e != nil {
+						emots := e.(map[string]interface{})
+						if len(emots) != 0 {
+							for s, i := range emots {
+								front.Emoji[s] = i.(map[string]interface{})["url"].(string)
+							}
+						}
+					}
+
 					action.FromId = strconv.Itoa(int(text.Info[2].([]interface{})[0].(float64)))
 					action.HonorLevel = int8(text.Info[16].([]interface{})[0].(float64))
 					action.Extra = text.Info[1].(string)
 					value, ok := text.Info[0].([]interface{})[15].(map[string]interface{})
+					if strings.Contains(action.Extra, "[") {
+						time.Now()
+					}
 					if ok {
 						user, exists := value["user"].(map[string]interface{})
 						if exists {
@@ -226,6 +250,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					action.GiftName = info.Data.GiftName
 					action.MedalLevel = int8(info.Data.Medal.Level)
 					action.MedalName = info.Data.Medal.Name
+					action.HonorLevel = info.Data.HonorLevel
 					action.FromId = strconv.Itoa(info.Data.SenderUinfo.UID)
 					front.MedalColor = fmt.Sprintf("#%06X", info.Data.Medal.Color)
 					price := float64(GiftPrice[info.Data.GiftName]) * float64(info.Data.Num)

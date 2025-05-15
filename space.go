@@ -1,8 +1,11 @@
 package bili
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
 	url2 "net/url"
 	"strconv"
 	"strings"
@@ -42,6 +45,24 @@ type Comment struct {
 	OID     int64
 	ReplyID int64
 	Type    int
+}
+
+type Article struct {
+	UID       int64
+	UName     string
+	Title     string
+	Text      string
+	View      int
+	Likes     int
+	Coin      int
+	Comments  int
+	Forward   int
+	Favourite int
+	CreatedAt time.Time
+}
+type Location struct {
+	Address  string
+	Describe string
 }
 
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
@@ -309,4 +330,71 @@ func (client *BiliClient) GetFace(id int64) string {
 	json.Unmarshal(res.Body(), &r)
 
 	return "https:" + r.TsRpcReturn.Data[strconv.FormatInt(id, 10)].Face
+}
+func (client *BiliClient) GetArticle(cv int64) Article {
+	start := time.Now()
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://www.bilibili.com/read/cv%s/?jump_opus=1", strconv.FormatInt(cv, 10)))
+	htmlContent := res.Body()
+	fmt.Println(time.Now().Sub(start))
+	reader := bytes.NewReader(htmlContent)
+	article := Article{}
+	root, _ := html.Parse(reader)
+	find := goquery.NewDocumentFromNode(root).Find("script")
+	find.Each(func(i int, s *goquery.Selection) {
+		if strings.Contains(s.Text(), "window.__INITIAL_STATE__") {
+			var j = strings.Replace(s.Text(), "window.__INITIAL_STATE__=", "", -1)
+			j = j[0:strings.Index(j, ";(functio")]
+			var obj interface{}
+			err := json.Unmarshal([]byte(j), &obj)
+			detail := obj.(map[string]interface{})["detail"].(map[string]interface{})
+			basic := detail["basic"].(map[string]interface{})
+			models := detail["modules"].([]interface{})
+
+			if err == nil {
+				article.UID = getInt64(basic, "uid")
+				article.Title = strings.Replace(getString(basic, "title"), " -哔哩哔哩", "", -1)
+				for _, model0 := range models {
+					module := model0.(map[string]interface{})
+					modelType := getString(module, "module_type")
+					if modelType == "MODULE_TYPE_AUTHOR" {
+						moduleValue := module["module_author"].(map[string]interface{})
+						article.CreatedAt = time.Unix(getInt64(moduleValue, "pub_ts"), 0)
+						article.UName = getString(moduleValue, "name")
+					}
+					if modelType == "MODULE_TYPE_STAT" {
+						moduleValue := module["module_stat"].(map[string]interface{})
+						article.Coin = getInt(moduleValue, "coin.count")
+						article.Comments = getInt(moduleValue, "comment.count")
+						article.Likes = getInt(moduleValue, "like.count")
+						article.Forward = getInt(moduleValue, "forward.count")
+						article.Favourite = getInt(moduleValue, "favorite.count")
+						fmt.Println(moduleValue)
+					}
+					if modelType == "MODULE_TYPE_CONTENT" {
+
+						str, _ := json.Marshal(module["module_content"].(map[string]interface{}))
+						article.Text = string(str)
+					}
+				}
+
+			}
+		}
+	})
+	return article
+
+}
+
+func (client *BiliClient) GetLocation(ip ...string) Location {
+	u := "https://api.bilibili.com/x/web-interface/zone"
+	if len(ip) != 0 {
+		u = "https://api.live.bilibili.com/client/v1/Ip/getInfoNew?ip=" + ip[0]
+	}
+	res, _ := client.Resty.R().Get(u)
+	var obj interface{}
+	json.Unmarshal(res.Body(), &obj)
+
+	result := Location{}
+	result.Address = getString(obj, "data.addr")
+	result.Describe = getString(obj, "data.country") + getString(obj, "data.province") + getString(obj, "data.city") + getString(obj, "data.isp")
+	return result
 }

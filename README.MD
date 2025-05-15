@@ -40,6 +40,9 @@ func (client *BiliClient) SetAnnouce(content string){} //设置主页公告
 func (client *BiliClient) GetFansMedal(id string){} []Medal //获取用户粉丝牌
 func (client *BiliClient) GetComment(oid int64, cursor string, type0 int){} []Comment //获取评论
 func (client *BiliClient) GetStats(uid int64){} map[string]int //获取用户稿件播放量和关注，粉丝量
+func (client *BiliClient) GetLocation(){} Location //获取当前ip信息
+func (client *BiliClient) GetLocation(ip string){} Location //获取指定ip信息
+func (client *BiliClient) GetArticle(cv int64) Archive{} //获取专栏信息和内容
 ~~~
 
 # Referer

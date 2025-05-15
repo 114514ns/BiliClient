@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
+	"math"
 	"math/rand"
 	url2 "net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -93,4 +95,63 @@ func toString(i int64) string {
 func toInt64(s string) int64 {
 	i, _ := strconv.ParseInt(s, 10, 64)
 	return i
+}
+
+type JsonType struct {
+	s   string
+	i   int
+	i64 int64
+	f32 float32
+	f64 float64
+}
+
+func getInt(obj interface{}, path string) int {
+	return getObject(obj, path, "int").i
+}
+func getInt64(obj interface{}, path string) int64 {
+	return getObject(obj, path, "int64").i64
+}
+func getString(obj interface{}, path string) string {
+	return getObject(obj, path, "string").s
+}
+func getObject(obj interface{}, path string, typo string) JsonType {
+	var array = strings.Split(path, ".")
+	inner := obj.(map[string]interface{})
+	var st = JsonType{}
+	for i, s := range array {
+		if i == len(array)-1 {
+
+			value := inner[s]
+			if value != nil {
+				var t = reflect.TypeOf(value)
+				if t.Kind() == reflect.String {
+					st.s = value.(string)
+				}
+				if t.Kind() == reflect.Int {
+					st.i, _ = value.(int)
+				}
+				if t.Kind() == reflect.Int64 {
+					if value.(int64) > math.MaxInt {
+						st.i64 = value.(int64)
+					} else {
+						st.i = value.(int)
+					}
+
+				}
+				if t.Kind() == reflect.Float64 {
+					if typo == "int" {
+						st.i = int(value.(float64))
+					}
+					if typo == "int64" {
+						st.i64 = int64(value.(float64))
+					}
+				}
+			}
+
+			return st
+		} else {
+			inner = inner[s].(map[string]interface{})
+		}
+	}
+	return st
 }
