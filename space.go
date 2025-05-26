@@ -1,11 +1,9 @@
 package bili
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
-	"golang.org/x/net/html"
+	"html"
 	url2 "net/url"
 	"strconv"
 	"strings"
@@ -58,11 +56,19 @@ type Article struct {
 	Comments  int
 	Forward   int
 	Favourite int
+	Tags      string
+	DynamicID int64
 	CreatedAt time.Time
 }
 type Location struct {
 	Address  string
 	Describe string
+}
+
+type FaceMap struct {
+	UID   int64
+	Face  string
+	UName string
 }
 
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
@@ -301,7 +307,8 @@ func (client *BiliClient) getUser(id int64) {
 	fmt.Println(res.String())
 }
 
-func (client *BiliClient) getBatchFace(id []int64) {
+func (client *BiliClient) BatchGetFace(id []int64) []FaceMap {
+
 	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[["
 	for i, i2 := range id {
 		s = s + strconv.FormatInt(i2, 10)
@@ -310,7 +317,14 @@ func (client *BiliClient) getBatchFace(id []int64) {
 		}
 	}
 	s = s + `],true,""]`
-	fmt.Println(s)
+	res, _ := client.Resty.R().Get(s)
+	var m map[string]interface{}
+	json.Unmarshal(res.Body(), &m)
+	var result []FaceMap
+	for s2, i := range m["_ts_rpc_return_"].(map[string]interface{})["data"].(map[string]interface{}) {
+		result = append(result, FaceMap{UID: toInt64(s2), Face: "https:" + getString(i, "face"), UName: getString(i, "uname")})
+	}
+	return result
 }
 func (client *BiliClient) GetFace(id int64) string {
 	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[[" + strconv.FormatInt(id, 10)
@@ -331,55 +345,56 @@ func (client *BiliClient) GetFace(id int64) string {
 
 	return "https:" + r.TsRpcReturn.Data[strconv.FormatInt(id, 10)].Face
 }
-func (client *BiliClient) GetArticle(cv int64) Article {
+func (client *BiliClient) GetArticle(cv int64, callback func(string), rawResponse func(string2 string)) Article {
+
 	start := time.Now()
-	res, _ := client.Resty.R().Get(fmt.Sprintf("https://www.bilibili.com/read/cv%s/?jump_opus=1", strconv.FormatInt(cv, 10)))
-	htmlContent := res.Body()
-	fmt.Println(time.Now().Sub(start))
-	reader := bytes.NewReader(htmlContent)
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/article/view?id=%s", strconv.FormatInt(cv, 10)))
+	fmt.Println(time.Since(start))
 	article := Article{}
-	root, _ := html.Parse(reader)
-	find := goquery.NewDocumentFromNode(root).Find("script")
-	find.Each(func(i int, s *goquery.Selection) {
-		if strings.Contains(s.Text(), "window.__INITIAL_STATE__") {
-			var j = strings.Replace(s.Text(), "window.__INITIAL_STATE__=", "", -1)
-			j = j[0:strings.Index(j, ";(functio")]
-			var obj interface{}
-			err := json.Unmarshal([]byte(j), &obj)
-			detail := obj.(map[string]interface{})["detail"].(map[string]interface{})
-			basic := detail["basic"].(map[string]interface{})
-			models := detail["modules"].([]interface{})
-
-			if err == nil {
-				article.UID = getInt64(basic, "uid")
-				article.Title = strings.Replace(getString(basic, "title"), " -哔哩哔哩", "", -1)
-				for _, model0 := range models {
-					module := model0.(map[string]interface{})
-					modelType := getString(module, "module_type")
-					if modelType == "MODULE_TYPE_AUTHOR" {
-						moduleValue := module["module_author"].(map[string]interface{})
-						article.CreatedAt = time.Unix(getInt64(moduleValue, "pub_ts"), 0)
-						article.UName = getString(moduleValue, "name")
-					}
-					if modelType == "MODULE_TYPE_STAT" {
-						moduleValue := module["module_stat"].(map[string]interface{})
-						article.Coin = getInt(moduleValue, "coin.count")
-						article.Comments = getInt(moduleValue, "comment.count")
-						article.Likes = getInt(moduleValue, "like.count")
-						article.Forward = getInt(moduleValue, "forward.count")
-						article.Favourite = getInt(moduleValue, "favorite.count")
-						fmt.Println(moduleValue)
-					}
-					if modelType == "MODULE_TYPE_CONTENT" {
-
-						str, _ := json.Marshal(module["module_content"].(map[string]interface{}))
-						article.Text = string(str)
-					}
-				}
-
-			}
+	var obj interface{}
+	if rawResponse != nil {
+		rawResponse(res.String())
+	}
+	json.Unmarshal(res.Body(), &obj)
+	if obj == nil {
+		if callback != nil {
+			callback("risk")
+			return Article{}
 		}
-	})
+	}
+	code := getInt(obj, "code")
+	if code == -404 {
+		if callback != nil {
+			callback("no")
+		}
+		return article
+	} else if code == 0 {
+		article.UID = getInt64(obj, "data.author.mid")
+		article.UName = getString(obj, "data.author.name")
+		article.CreatedAt = time.Unix(int64(getInt64(obj, "data.publish_time")), 0)
+		article.View = getInt(obj, "data.stats.view")
+		article.Coin = getInt(obj, "data.stats.coin")
+		article.Forward = getInt(obj, "data.stats.share")
+		article.Comments = getInt(obj, "data.stats.reply")
+		article.Likes = getInt(obj, "data.stats.like")
+		article.Title = getString(obj, "data.title")
+		article.Favourite = getInt(obj, "data.stats.favorite")
+		article.Text = html.UnescapeString(getString(obj, "data.content"))
+		article.DynamicID, _ = strconv.ParseInt(getString(obj, "data.dyn_id_str"), 10, 64)
+		tags, ok := obj.(map[string]interface{})["data"].(map[string]interface{})["tags"].([]interface{})
+		if ok {
+			t := ""
+			for _, tag := range tags {
+				t = t + getString(tag, "name") + ","
+			}
+			article.Tags = t[:len(t)-1]
+		}
+	} else {
+		if callback != nil {
+			callback("risk")
+		}
+	}
+
 	return article
 
 }
@@ -389,12 +404,16 @@ func (client *BiliClient) GetLocation(ip ...string) Location {
 	if len(ip) != 0 {
 		u = "https://api.live.bilibili.com/client/v1/Ip/getInfoNew?ip=" + ip[0]
 	}
-	res, _ := client.Resty.R().Get(u)
+	res, err := client.Resty.R().Get(u)
 	var obj interface{}
 	json.Unmarshal(res.Body(), &obj)
 
+	if err != nil {
+		fmt.Println(err)
+	}
 	result := Location{}
 	result.Address = getString(obj, "data.addr")
 	result.Describe = getString(obj, "data.country") + getString(obj, "data.province") + getString(obj, "data.city") + getString(obj, "data.isp")
+
 	return result
 }

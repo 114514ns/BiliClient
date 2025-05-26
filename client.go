@@ -36,6 +36,16 @@ var userAgents = []string{
 	"Mozilla/5.0 (Windows 7 Enterprise; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6099.71 Safari/537.36",
 	"Mozilla/5.0 (Windows Server 2012 R2 Standard; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5975.80 Safari/537.36",
 	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.5672 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.5938.132 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 12_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.5938.136 Mobile Safari/537.36",
+	"Mozilla/5.0 (Linux; U; Android 13; en-US; SM-G991U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.5938.136 Mobile Safari/537.36",
+	"Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/118.0.2088.76 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.5938.132 Safari/537.36",
+	"Mozilla/5.0 (Linux; Android 13; OnePlus 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.5938.132 Mobile Safari/537.36",
+	"Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/118.0 Safari/537.36",
 }
 
 func NewClient(cookie string, options ClientOptions) *BiliClient {
@@ -56,7 +66,7 @@ func setupClient(client *BiliClient, cookie string) {
 	client.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
 		if client.Options.RandomUserAgent {
-			request.Header.Set("User-Agent", userAgents[rand.Uint32()%uint32(len(userAgents))])
+			request.Header.Set("User-Agent", randomUserAgent())
 		} else {
 			request.Header.Set("User-Agent", client.UserAgent)
 		}
@@ -70,7 +80,10 @@ func setupClient(client *BiliClient, cookie string) {
 		for _, s := range r.Header().Values("Set-Cookie") {
 			cookie += strings.Split(s, ";")[0] + ";"
 		}
-		cookie = cookie[0 : len(cookie)-1]
+		if cookie != "" {
+			cookie = cookie[0 : len(cookie)-1]
+		}
+
 	}
 	client.Cookie = cookie
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
@@ -99,4 +112,49 @@ func (client BiliClient) selfUID() int64 {
 	var self = SelfInfo{}
 	json.Unmarshal(res.Body(), &self)
 	return self.Data.Mid
+}
+
+func (client *BiliClient) ResetResty(cookie ...string) {
+	transport, _ := client.Resty.Transport()
+	transport.CloseIdleConnections()
+	client.Resty = resty.New()
+
+	if len(cookie) > 0 {
+		setupClient(client, cookie[0])
+		client.Cookie = ""
+	} else {
+		setupClient(client, client.Cookie)
+	}
+
+}
+func randomBrowserVersion(browser string) string {
+	majorVersion := 117 + rand.Intn(3) // 主版本号范围，例如117到119
+	minorVersion := rand.Intn(1000)    // 次版本号可在0到999之间
+	return fmt.Sprintf("%s/%d.%d", browser, majorVersion, minorVersion)
+}
+func randomUserAgent() string {
+	var operatingSystems = []string{
+		"Windows NT 10.0; Win64; x64",
+		"Macintosh; Intel Mac OS X 12_6",
+		"Linux; Android 13; Pixel 6",
+		"Linux; U; Android 13; SM-G991U",
+		"X11; Linux x86_64",
+	}
+
+	var devices = []string{
+		"Mobile Safari/537.36",
+		"Safari/537.36",
+		"Mobile/15E148 Safari/604.1",
+		"Safari/604.1",
+	}
+	os := operatingSystems[rand.Intn(len(operatingSystems))]
+	device := devices[rand.Intn(len(devices))]
+
+	// 定义浏览器类型
+	browserTypes := []string{"Chrome", "Edge", "Firefox", "Safari"}
+	browser := browserTypes[rand.Intn(len(browserTypes))]
+
+	browserVersion := randomBrowserVersion(browser)
+
+	return fmt.Sprintf("Mozilla/5.0 (%s) AppleWebKit/537.36 (KHTML, like Gecko) %s %s", os, browserVersion, device)
 }

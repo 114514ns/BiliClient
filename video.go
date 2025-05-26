@@ -44,11 +44,10 @@ func (v *Video) GetStream(client *BiliClient) []string {
 
 func (client BiliClient) GetVideo(bv string) (result []Video) {
 	res, _ := client.Resty.R().
-		Get("https://api.bilibili.com/x/web-interface/view?bvid=" + bv)
+		Get("https://api.bilibili.com/x/web-interface/view/detail?bvid=" + bv)
 
 	var resObj = VideoResponse{}
 	json.Unmarshal(res.Body(), &resObj)
-	fmt.Println(string(res.Body()))
 
 	var array = []Video{}
 
@@ -67,6 +66,7 @@ func (client BiliClient) GetVideo(bv string) (result []Video) {
 		video.Cover = resObj.Data.Cover
 		video.UID = resObj.Data.Owner.Mid
 		video.AuthorFace = resObj.Data.Owner.Face
+		video.Comment = resObj.Data.Stat.Reply
 		array = append(array, video)
 	}
 

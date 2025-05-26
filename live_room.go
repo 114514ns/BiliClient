@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -105,7 +106,9 @@ func (client *BiliClient) GetHistory(room int, onResponse func(string)) {
 
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {
 	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room
-	res, _ := client.Resty.R().Get(url0)
+	query, _ := url.Parse(url0)
+	signed, _ := client.WBI.SignQuery(query.Query(), time.Now())
+	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?" + signed.Encode())
 	var liveInfo = LiveInfo{}
 	json.Unmarshal(res.Body(), &liveInfo)
 	ticker := time.NewTicker(45 * time.Second)
@@ -114,7 +117,9 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 		HandshakeTimeout: 45 * time.Second,
 	}
 	u := url.URL{Scheme: "wss", Host: liveInfo.Data.HostList[0].Host + ":2245", Path: "/sub"}
-	c, _, err := dialer.Dial(u.String(), nil)
+	var header = http.Header{}
+	header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+	c, _, err := dialer.Dial(u.String(), header)
 	go func() {
 		var cer = Certificate{}
 		cer.Uid = client.UID
@@ -122,7 +127,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 		cer.RoomId = id
 		cer.Type = 2
 		cer.Key = liveInfo.Data.Token
-		cer.Cookie = strings.Replace(client.Cookie, "buvid3=", "", 1)
+		/*cer.Cookie = strings.Replace(client.Cookie, "buvid3=", "", 1)*/
 		cer.Protover = 3
 		cerJson, _ := json.Marshal(&cer)
 
@@ -202,7 +207,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 						}
 					}
 
-					action.FromId = strconv.Itoa(int(text.Info[2].([]interface{})[0].(float64)))
+					action.FromId = int64(text.Info[2].([]interface{})[0].(float64))
 					action.HonorLevel = int8(text.Info[16].([]interface{})[0].(float64))
 					action.Extra = text.Info[1].(string)
 					value, ok := text.Info[0].([]interface{})[15].(map[string]interface{})
@@ -251,7 +256,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					action.MedalLevel = int8(info.Data.Medal.Level)
 					action.MedalName = info.Data.Medal.Name
 					action.HonorLevel = info.Data.HonorLevel
-					action.FromId = strconv.Itoa(info.Data.SenderUinfo.UID)
+					action.FromId = info.Data.SenderUinfo.UID
 					front.MedalColor = fmt.Sprintf("#%06X", info.Data.Medal.Color)
 					price := float64(GiftPrice[info.Data.GiftName]) * float64(info.Data.Num)
 					result, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", price), 64)
@@ -266,7 +271,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 
 					var enter = EnterLive{}
 					json.Unmarshal(msgData, &enter)
-					action.FromId = strconv.Itoa(enter.Data.UID)
+					action.FromId = enter.Data.UID
 					action.FromName = enter.Data.Uname
 					action.ActionName = "enter"
 					front.LiveAction = action
@@ -282,7 +287,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 
 					action.ActionName = "sc"
 					action.FromName = sc.Data.UserInfo.Uname
-					action.FromId = strconv.Itoa(sc.Data.Uid)
+					action.FromId = sc.Data.Uid
 					result, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", sc.Data.Price), 64)
 					action.GiftPrice = float32(result)
 
@@ -291,7 +296,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				} else if strings.Contains(obj, "GUARD_BUY") { //上舰
 					var guard = GuardInfo{}
 					json.Unmarshal(msgData, &guard)
-					action.FromId = strconv.Itoa(guard.Data.Uid)
+					action.FromId = guard.Data.Uid
 					action.ActionName = "guard"
 					action.FromName = guard.Data.Username
 					action.GiftName = guard.Data.GiftName

@@ -346,7 +346,7 @@ type GiftInfo struct {
 			Base struct {
 				Name string `json:"name"`
 			} `json:"base"`
-			UID int `json:"uid"`
+			UID int64 `json:"uid"`
 		} `json:"sender_uinfo"`
 		UID   int `json:"uid"`
 		Medal struct {
@@ -375,7 +375,7 @@ type GiftBox struct {
 }
 type LiveAction struct {
 	FromName   string
-	FromId     string
+	FromId     int64
 	LiveRoom   string
 	ActionName string
 	GiftName   string
@@ -421,7 +421,7 @@ type Live struct {
 type EnterLive struct {
 	Cmd  string `json:"cmd"`
 	Data struct {
-		UID       int    `json:"uid"`
+		UID       int64  `json:"uid"`
 		Uname     string `json:"uname"`
 		FansMedal struct {
 			MedalName string `json:"medal_name"`
@@ -442,7 +442,7 @@ type SuperChatInfo struct {
 	Data struct {
 		Message  string  `json:"message"`
 		Price    float64 `json:"price"`
-		Uid      int     `json:"uid"`
+		Uid      int64   `json:"uid"`
 		UserInfo struct {
 			Uname string `json:"uname"`
 		} `json:"user_info"`
@@ -451,7 +451,7 @@ type SuperChatInfo struct {
 
 type GuardInfo struct {
 	Data struct {
-		Uid        int    `json:"uid"`
+		Uid        int64  `json:"uid"`
 		Username   string `json:"username"`
 		GuardLevel int    `json:"guard_level"`
 		Num        int    `json:"num"`
