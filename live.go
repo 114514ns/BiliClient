@@ -36,6 +36,14 @@ type Area struct {
 	Icon       string
 }
 
+type AreaLiver struct {
+	UName string
+	UID   int64
+	Room  int
+	Title string
+	Cover string
+}
+
 func (client BiliClient) GetGuard(room string, liver string, delay int) []LiveUser {
 	var arr = make([]LiveUser, 0)
 	var page = 1
@@ -162,15 +170,26 @@ func (client BiliClient) GetLiveStream(room string) string {
 	return ""
 
 }
-func (client BiliClient) GetAreaLiveByPage(area string, page int) []LiveStreamResponse {
+func (client BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {
 	var now = time.Now()
-	u, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?platform=web&parent_area_id=%s&area_id=0&sort_type=&page=%d&vajra_business_key=&web_location=444.43", area, page))
+	u, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?platform=web&parent_area_id=%d&area_id=0&sort_type=&page=%d&vajra_business_key=&web_location=444.43", area, page))
 	s, _ := client.WBI.SignQuery(u.Query(), now)
 	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?" + s.Encode())
 	obj := AreaLiverListResponse{}
 	json.Unmarshal(res.Body(), &obj)
-	fmt.Println(obj)
-	return nil
+	var array = make([]AreaLiver, 0)
+	if len(obj.Data.List) == 0 {
+		fmt.Println(res.String())
+	}
+	for _, s2 := range obj.Data.List {
+		var liver = AreaLiver{}
+		liver.UID = s2.UID
+		liver.Room = s2.Room
+		liver.Title = s2.Title
+		liver.Cover = s2.Cover
+		array = append(array, liver)
+	}
+	return array
 }
 func (client BiliClient) GetAreas() []Area {
 	u := "https://api.live.bilibili.com/xlive/web-interface/v1/index/getWebAreaList?source_id=2"

@@ -48,7 +48,7 @@ var GiftPrice = map[string]float32{}
 var GiftPic = make(map[string]string)
 var mu sync.RWMutex
 
-func (client BiliClient) FillGiftPrice(room string, area int, parent int) {
+func (client BiliClient) FillGiftPrice(room string, area int, parent int) map[string]float32 {
 	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList?platform=pc&room_id=" + room + "&area_id=" + strconv.Itoa(area) + "&area_parent_id" + strconv.Itoa(parent))
 	var gift = GiftList{}
 	json.Unmarshal(res.Body(), &gift)
@@ -81,6 +81,7 @@ func (client BiliClient) FillGiftPrice(room string, area int, parent int) {
 		GiftPrice[item.Name] = float32(item.Price) / 1000.0
 		mu.Unlock()
 	}
+	return GiftPrice
 }
 
 func (client *BiliClient) SendMessage(msg string, room int, onResponse func(string)) {
@@ -105,7 +106,7 @@ func (client *BiliClient) GetHistory(room int, onResponse func(string)) {
 }
 
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {
-	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room
+	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room + "&is_anchor=true"
 	query, _ := url.Parse(url0)
 	signed, _ := client.WBI.SignQuery(query.Query(), time.Now())
 	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?" + signed.Encode())

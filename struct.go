@@ -254,6 +254,7 @@ type AreaLiverListResponse struct {
 			Title      string `json:"title"`
 			UName      string `json:"uname"`
 			UID        int64  `json:"uid"`
+			Cover      string `json:"user_cover"`
 			Watch      struct {
 				Num int `json:"num"`
 			} `json:"watched_show"`

@@ -7,19 +7,26 @@ import (
 )
 
 func TestDynamic(t *testing.T) {
+
 	file, _ := os.ReadFile("cookie.txt")
+
 	var cookie = string(file)
 	cookie = ""
-	client := NewClient(cookie, ClientOptions{})
 
+	//launch()
 	/*
-		client := NewAnonymousClient(ClientOptions{
-			HttpProxy:       "156.226.170.127:8080",
-			ProxyUser:       "fg27msTTyo",
-			ProxyPass:       "PZ8u9Pr2oz",
-			RandomUserAgent: true,
-		})
+		client := NewClient(cookie, ClientOptions{})
+		client.TraceLive("22749172", nil, nil)
 
 	*/
+	client := NewClient(cookie, ClientOptions{})
 
+	client.GetDynamicsByUser(3493118494116797, "-480")
+
+}
+
+func PrintLiveMsg(action FrontLiveAction) {
+	if action.ActionName == "msg" {
+		fmt.Printf("[%s]   %s\n", action.FromName, action.Extra)
+	}
 }

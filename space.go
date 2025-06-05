@@ -20,16 +20,21 @@ var CommentType = CommentType0{
 	Dynamic: 17,
 }
 
-type Archive struct {
-	Aid    int64
-	UName  string
-	UID    int64
-	Images []string
-	Type   string
-	Title  string
-	Text   string
-	ID     string
-	BV     string
+type Dynamic struct {
+	UName     string
+	UID       int64
+	Face      string
+	Images    []string
+	Type      string
+	Title     string
+	Text      string
+	ID        int64
+	BV        string
+	Comments  int
+	Like      int
+	Forward   int
+	CommentID int64
+	CreateAt  time.Time
 }
 type Comment struct {
 	UName   string
@@ -69,6 +74,19 @@ type FaceMap struct {
 	UID   int64
 	Face  string
 	UName string
+}
+
+type User struct {
+	UName      string
+	UID        int64
+	Bio        string
+	Face       string
+	Fans       uint
+	Level      int8
+	VerifyType int8
+	Archives   uint
+	Like       uint
+	Verify     string
 }
 
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
@@ -113,66 +131,68 @@ func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]s
 	return m
 }
 
-func (client *BiliClient) GetDynamicsByUser(user int64, offset string) ([]Archive, string) {
-	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?offset&host_mid=%d&timezone_offset=-480&features=itemOpusStyle", user)
+func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dynamic, string) {
+	offset := ""
+	if len(offset0) == 0 {
+		offset = "-480"
+	} else {
+		offset = offset0[0]
+	}
+	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?offset&host_mid=%d&timezone_offset=%s&features=itemOpusStyle", user, offset)
 	u, _ := url2.Parse(url)
 	signed, _ := client.WBI.SignQuery(u.Query(), time.Now())
-	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?" + signed.Encode())
-	obj := UserDynamic{}
+	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/feed/space?" + signed.Encode())
+	var obj interface{}
 	json.Unmarshal(res.Body(), &obj)
-	var archives = make([]Archive, 0)
-	for _, item := range obj.Data.Items {
-		p, _ := parseDynamc(item)
-		archives = append(archives, p)
-	}
-	return archives, obj.Data.Offset
+	var archives = parseDynamic(obj)
+	return archives, getString(obj, "data.offset")
 }
-func parseDynamc(item DynamicItem) (Archive, Archive) {
-	var Type = item.Type
-	var orig = Archive{}
-	var userName = item.Modules.ModuleAuthor.Name
-	var archive = Archive{}
-	archive.UName = userName
-	archive.UID = item.Modules.ModuleAuthor.Mid
-	archive.Aid, _ = strconv.ParseInt(item.Base.CommentID, 10, 64)
-	if Type == "DYNAMIC_TYPE_FORWARD" { //转发
-		archive.Type = "f"
-		archive.ID = item.IDStr
-		var txt = ""
-		for _, node := range item.Modules.ModuleDynamic.Desc.Nodes {
-			txt = txt + node.Text
-			txt = txt + "\n"
+func parseDynamic(item interface{}) []Dynamic {
+	var result []Dynamic
+	for _, m := range item.(map[string]interface{})["data"].(map[string]interface{})["items"].([]interface{}) {
+		var dynamic = Dynamic{}
+		dynamic.ID = toInt64(getString(m, "id_str"))
+		dynamic.Type = getString(m, "type")
+		switch getString(m, "type") {
+
 		}
-		//orig, _ = parseDynamc(*item.Orig, false)
-		archive.Text = txt
-	} else if Type == "DYNAMIC_TYPE_AV" { //发布视频
-		archive.Type = "v"
-		archive.ID = item.IDStr
-		archive.BV = item.Modules.ModuleDynamic.Major.Archive.Bvid
-		archive.Title = item.Modules.ModuleDynamic.Major.Archive.Title
-	} else if Type == "DYNAMIC_TYPE_DRAW" { //图文
-		archive.Type = "i"
-		archive.ID = item.IDStr
-		for _, pic := range item.Modules.ModuleDynamic.Major.Opus.Pics {
-			archive.Images = append(archive.Images, pic.URL)
+
+		for _, i2 := range m.(map[string]interface{})["modules"].([]interface{}) {
+			switch getString(i2, "module_type") {
+
+			case "MODULE_TYPE_AUTHOR":
+				dynamic.CreateAt = time.Unix(getInt64(i2, "module_author.pub_ts"), 0)
+				dynamic.UID = getInt64(i2, "module_author.user.mid")
+				dynamic.UName = getString(i2, "module_author.user.name")
+				dynamic.Face = getString(i2, "module_author.user.face")
+			case "MODULE_TYPE_DESC":
+				dynamic.Text = getString(i2, "module_desc.text")
+
+			case "MODULE_TYPE_DYNAMIC":
+				var images []string
+				typo := getString(i2, "module_dynamic.type")
+				if typo == "MDL_DYN_TYPE_DRAW" {
+					for _, o := range i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_draw"].(map[string]interface{})["items"].([]interface{}) {
+						images = append(images, getString(o, "src"))
+					}
+					dynamic.Images = images
+				}
+				if typo == "MDL_DYN_TYPE_ARCHIVE" {
+					dynamic.BV = getString(i2, "module_dynamic.dyn_archive.bvid")
+					dynamic.Images = []string{getString(i2, "module_dynamic.dyn_archive.cover")}
+					dynamic.Title = getString(i2, "module_dynamic.dyn_archive.title")
+				}
+			case "MODULE_TYPE_STAT":
+				dynamic.Comments = getInt(i2, "module_stat.comment.count")
+				dynamic.Forward = getInt(i2, "module_stat.forward.count")
+				dynamic.Like = getInt(i2, "module_stat.like.count")
+				dynamic.CommentID = toInt64(getString(i2, "module_stat.comment.comment_id"))
+
+			}
 		}
-		//archive.Text = item.Modules.ModuleDynamic.Major.Desc.Text
-		archive.Text = item.Modules.ModuleDynamic.Major.Opus.Summary.Text
-
-	} else if Type == "DYNAMIC_TYPE_WORD" { //文字
-		archive.Type = "t"
-		archive.ID = item.IDStr
-		archive.Text = item.Modules.ModuleDynamic.Major.Opus.Summary.Text
-	} else if Type == "DYNAMIC_TYPE_LIVE_RCMD" {
-
-	} else if Type == "DYNAMIC_TYPE_COMMON_SQUARE" {
-
-	} else {
-		archive.Type = Type
-		archive.ID = item.IDStr
-		archive.Text = item.Modules.ModuleDynamic.Major.Opus.Summary.Text
+		result = append(result, dynamic)
 	}
-	return archive, orig
+	return result
 }
 func parseComment(reply ReplyInternalResponse) Comment {
 	var comment = Comment{}
@@ -246,12 +266,12 @@ func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) [
 func (comment *Comment) GetReply(page int, client *BiliClient) []Comment {
 	return client.GetReply(comment.OID, comment.ReplyID, page, CommentType.Dynamic)
 }
-func (archive *Archive) GetComments(cursor string, client *BiliClient) []Comment {
+func (archive *Dynamic) GetComments(cursor string, client *BiliClient) []Comment {
 	t := CommentType.Dynamic
 	if archive.BV != "" {
 		t = CommentType.Video
 	}
-	return client.GetComment(archive.Aid, cursor, t)
+	return client.GetComment(archive.CommentID, cursor, t)
 }
 func (client *BiliClient) SetAnnouce(content string) {
 	split := strings.Split(client.Cookie, ";")
@@ -301,28 +321,46 @@ func (client *BiliClient) GetStats(uid int64) map[string]int {
 	return m
 
 }
-func (client *BiliClient) getUser(id int64) {
-	u := appendWts("https://api.bilibili.com/x/space/wbi/acc/info?mid="+toString(id), client)
-	res, _ := client.Resty.R().Get(u)
-	fmt.Println(res.String())
+func (client *BiliClient) GetUser(id int64) (User, int) {
+	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/web-interface/card?mid=" + toString(id))
+	var obj interface{}
+	json.Unmarshal(res.Body(), &obj)
+	var user = User{}
+	user.UID = id
+	if getInt(obj, "code") == -404 {
+		return user, 3
+	}
+	if getInt(obj, "code") == -352 {
+		return user, 2
+	}
+	user.UName = getString(obj, "data.card.name")
+
+	user.Level = int8(getInt64(obj, "data.card.level_info.current_level"))
+	user.Face = getString(obj, "data.card.face")
+	user.Bio = getString(obj, "data.card.sign")
+	user.Archives = uint(getInt(obj, "data.archive_count"))
+	user.Like = uint(getInt(obj, "data.like_num"))
+	user.Fans = uint(getInt(obj, "data.follower"))
+	user.Verify = strings.Replace(getString(obj, "data.card.official_verify.desc"), "、", ",", 1145)
+	user.VerifyType = int8(getInt(obj, "data.card.official_verify.type"))
+	return user, 1
 }
 
 func (client *BiliClient) BatchGetFace(id []int64) []FaceMap {
 
-	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[["
+	var s = "https://cm.bilibili.com/dwp/api/web_api/v1/up/base_info?mids="
 	for i, i2 := range id {
 		s = s + strconv.FormatInt(i2, 10)
 		if i != len(id)-1 {
 			s = s + ","
 		}
 	}
-	s = s + `],true,""]`
 	res, _ := client.Resty.R().Get(s)
 	var m map[string]interface{}
 	json.Unmarshal(res.Body(), &m)
 	var result []FaceMap
-	for s2, i := range m["_ts_rpc_return_"].(map[string]interface{})["data"].(map[string]interface{}) {
-		result = append(result, FaceMap{UID: toInt64(s2), Face: "https:" + getString(i, "face"), UName: getString(i, "uname")})
+	for _, i := range m["data"].([]interface{}) {
+		result = append(result, FaceMap{UID: toInt64(getString(i, "mid")), Face: "https:" + getString(i, "avatar"), UName: getString(i, "nickname")})
 	}
 	return result
 }
@@ -347,9 +385,9 @@ func (client *BiliClient) GetFace(id int64) string {
 }
 func (client *BiliClient) GetArticle(cv int64, callback func(string), rawResponse func(string2 string)) Article {
 
-	start := time.Now()
+	//start := time.Now()
 	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/article/view?id=%s", strconv.FormatInt(cv, 10)))
-	fmt.Println(time.Since(start))
+	//fmt.Println(time.Since(start))
 	article := Article{}
 	var obj interface{}
 	if rawResponse != nil {
