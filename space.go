@@ -3,6 +3,7 @@ package bili
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jhump/protoreflect/dynamic"
 	"html"
 	url2 "net/url"
 	"strconv"
@@ -17,7 +18,7 @@ type CommentType0 struct {
 
 var CommentType = CommentType0{
 	Video:   1,
-	Dynamic: 17,
+	Dynamic: 11,
 }
 
 type Dynamic struct {
@@ -238,6 +239,12 @@ func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comm
 
 	}
 	return list
+}
+func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int) {
+	msg := dynamic.NewMessage(protoMap["Reply.MainListReq"])
+	msg.TrySetFieldByName("oid", oid)
+	msg.TrySetFieldByName("type", int64(type0))
+	//client.Resty.R().SetBody()
 }
 func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) []Comment {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/reply?oid=%d&type=%d&root=%d&ps=10&pn=%d&web_location=333.1365", oid, type0, root, page)

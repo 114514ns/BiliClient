@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/jhump/protoreflect/dynamic"
 	"golang.org/x/net/html"
 	"math"
 	"math/rand"
@@ -214,4 +215,50 @@ func ChunkSlice[T any](slice []T, size int) [][]T {
 		result = append(result, slice[i:end])
 	}
 	return result
+}
+func getAurora(uid uint64) string {
+	if uid == 0 {
+		return ""
+	}
+
+	// 1. 将 UID 转为字符串再转为字节数组
+	midBytes := []byte(strconv.FormatUint(uid, 10))
+
+	// 2. 和 "ad1va46a7lza" 每字节进行异或
+	key := []byte("ad1va46a7lza")
+	resultBytes := make([]byte, len(midBytes))
+	for i, b := range midBytes {
+		resultBytes[i] = b ^ key[i%len(key)]
+	}
+
+	// 3. Base64 编码，去掉 padding
+	encoded := base64.RawStdEncoding.EncodeToString(resultBytes)
+	return encoded
+}
+func getFawkes() string {
+	msg := dynamic.NewMessage(protoMap[ProtoType.Metadata_FawkesReq])
+	msg.TrySetFieldByName("appkey", "android")
+	msg.TrySetFieldByName("env", "prod")
+	msg.TrySetFieldByName("session_id", randomHex(8))
+	bytes, _ := msg.Marshal()
+	return base64.StdEncoding.EncodeToString(bytes)
+}
+func getMetadata() string {
+	msg := dynamic.NewMessage(protoMap[ProtoType.Metadata])
+	msg.TrySetFieldByName("mobi_app", "android")
+	msg.TrySetFieldByName("build", 7420400)
+	msg.TrySetFieldByName("channel", "alifenfa")
+	msg.TrySetFieldByName("platform", "android")
+	msg.TrySetFieldByName("buvid", "")
+	bytes, _ := msg.Marshal()
+	return base64.StdEncoding.EncodeToString(bytes)
+}
+
+func randomHex(length int) string {
+	var table = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"}
+	var hex = ""
+	for i := 0; i < length; i++ {
+		hex = hex + table[rand.Intn(len(table))]
+	}
+	return hex
 }

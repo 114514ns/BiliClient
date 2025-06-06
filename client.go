@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-resty/resty/v2"
+	"github.com/jhump/protoreflect/desc"
+	"github.com/jhump/protoreflect/desc/protoparse"
 	"math/rand"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -24,6 +27,15 @@ type BiliClient struct {
 	UID       int64
 	Options   ClientOptions
 }
+type protoType0 struct {
+	Reply_MainListReply string
+	Reply_MainListReq   string
+	Metadata_FawkesReq  string
+	Metadata            string
+}
+
+var ProtoType protoType0
+var protoMap = make(map[string]*desc.MessageDescriptor)
 
 var userAgents = []string{
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
@@ -59,16 +71,38 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 	return client
 }
 func setupClient(client *BiliClient, cookie string) {
+	_, err := os.Open("bilibili")
+	if err == nil {
+		parser := protoparse.Parser{}
+		{
+			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
+			fd := fds[0]
+			ProtoType.Reply_MainListReq = "Reply.MainListReq"
+			ProtoType.Reply_MainListReply = "Reply.MainListReply"
+			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
+			ProtoType.Metadata = "Metadata"
+			protoMap[ProtoType.Reply_MainListReply] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReply")
+			protoMap[ProtoType.Reply_MainListReq] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReq")
+			fds, _ = parser.ParseFiles("bilibili/metadata/fawkes.proto")
+			protoMap[ProtoType.Metadata_FawkesReq] = fds[0].FindMessage("bilibili.metadata.fawkes.FawkesReq")
+			fds, _ = parser.ParseFiles("bilibili/metadata.proto")
+			protoMap[ProtoType.Metadata] = fds[0].FindMessage("bilibili.metadata.Metadata")
+		}
+	}
 	if client.Options.HttpProxy != "" {
 		proxyURL, _ := url.Parse(fmt.Sprintf("http://%s:%s@%s", client.Options.ProxyUser, client.Options.ProxyPass, client.Options.HttpProxy))
 		client.Resty.SetProxy(proxyURL.String())
 	}
 	client.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
-		if client.Options.RandomUserAgent {
-			request.Header.Set("User-Agent", randomUserAgent())
+		if strings.Contains(request.URL, "bilibili.main") {
+
 		} else {
-			request.Header.Set("User-Agent", client.UserAgent)
+			if client.Options.RandomUserAgent {
+				request.Header.Set("User-Agent", randomUserAgent())
+			} else {
+				request.Header.Set("User-Agent", client.UserAgent)
+			}
 		}
 
 		request.Header.Set("Referer", "https://www.bilibili.com/")
