@@ -25,7 +25,7 @@ func TestDynamic(t *testing.T) {
 
 	client := NewClient(cookie, ClientOptions{})
 
-	client.GetDynamicsByUser(3493118494116797, "-480")
+	//client.GetDynamicsByUser(3493118494116797, "-480")
 
 	// 加载二进制数据
 	data, err := os.ReadFile("MainList")
@@ -41,8 +41,8 @@ func TestDynamic(t *testing.T) {
 
 
 	*/
+	client.GetCommentRPC(114640981925730, "", 1, true)
 
-	getFawkes()
 	msg := dynamic.NewMessage(protoMap["Reply.MainListReply"])
 	err = msg.Unmarshal(data)
 	if err != nil {

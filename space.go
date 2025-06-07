@@ -38,13 +38,14 @@ type Dynamic struct {
 	CreateAt  time.Time
 }
 type Comment struct {
+	ID      int64
 	UName   string
+	Face    string
 	UID     int64
 	Text    string
 	Time    time.Time
 	Like    int
 	Replies int
-	Avatar  string
 	Reply   []Comment
 	OID     int64
 	ReplyID int64
@@ -200,13 +201,27 @@ func parseComment(reply ReplyInternalResponse) Comment {
 	comment.UID = reply.Mid
 	comment.Text = reply.Content.Message
 	comment.UName = reply.Member.Uname
-	comment.Avatar = reply.Member.Avatar
+	comment.Face = reply.Member.Avatar
 	comment.ReplyID = reply.ReplyID
 	comment.Like = reply.Like
 
 	comment.Replies = len(reply.Replies)
 	comment.Time = time.Unix(int64(reply.Ctime), 0)
 	return comment
+}
+func parseRPCComment(obj interface{}) Comment {
+	var comment = Comment{}
+	comment.ID = toInt64(getString(obj, "id"))
+	comment.UID = toInt64(getString(obj, "mid"))
+	comment.Time = time.Unix(toInt64(getString(obj, "ctime")), 0)
+	comment.Text = getString(obj, "content.message")
+	comment.UName = getString(obj, "member.name")
+	comment.Face = getString(obj, "member.face")
+	if getString(obj, "like") != "" {
+		comment.Like = int(toInt64(getString(obj, "like")))
+	}
+	return comment
+
 }
 func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comment {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/wbi/main?oid=%d&type=%d&mode=%d&pagination_str=%s", oid, type0, 3, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
@@ -222,7 +237,7 @@ func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comm
 		comment.Text = reply.Content.Message
 		comment.ReplyID = reply.ReplyID
 		comment.UName = reply.Member.Uname
-		comment.Avatar = reply.Member.Avatar
+		comment.Face = reply.Member.Avatar
 		comment.Like = reply.Like
 		comment.OID = oid
 		comment.Type = type0
@@ -240,10 +255,47 @@ func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comm
 	}
 	return list
 }
-func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int) {
-	msg := dynamic.NewMessage(protoMap["Reply.MainListReq"])
-	msg.TrySetFieldByName("oid", oid)
-	msg.TrySetFieldByName("type", int64(type0))
+func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, byHot bool) ([]Comment, string) {
+
+	var jsonStr = `
+		{
+		    "oid": "%d",
+		    "type": "%d",
+		    "extra": "{}",
+		    "adExtra": "",
+		    "filterTagName": "全部",
+		    "mode": "%s",
+		    "pagination": {
+		        "offset": "%s"
+		    }
+		}
+		`
+	var mode = "MAIN_LIST_HOT"
+	if !byHot {
+		mode = "MAIN_LIST_TIME"
+	}
+	var processed = fmt.Sprintf(jsonStr, oid, type0, mode, cursor)
+	msg := dynamic.NewMessage(protoMap[ProtoType.Reply_MainListReq])
+	msg.UnmarshalJSON([]byte(processed))
+	payload, _ := msg.Marshal()
+
+	res, err := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.main.community.reply.v1.Reply/MainList")
+	if err != nil {
+		fmt.Println(err)
+	}
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+
+	var array []Comment
+	var gotCursor = getString(obj, "paginationReply.nextOffset")
+
+	for _, i := range obj["replies"].([]interface{}) {
+
+		array = append(array, parseRPCComment(i))
+	}
+
+	return array, gotCursor
+
 	//client.Resty.R().SetBody()
 }
 func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) []Comment {
@@ -257,7 +309,7 @@ func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) [
 		comment.UID = reply.Mid
 		comment.Text = reply.Content.Message
 		comment.UName = reply.Member.Uname
-		comment.Avatar = reply.Member.Avatar
+		comment.Face = reply.Member.Avatar
 		comment.Like = reply.Like
 		comment.OID = oid
 		comment.Replies = len(reply.Replies)

@@ -11,6 +11,8 @@ import (
 	"math"
 	"math/rand"
 	url2 "net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -246,14 +248,43 @@ func getFawkes() string {
 func getMetadata() string {
 	msg := dynamic.NewMessage(protoMap[ProtoType.Metadata])
 	msg.TrySetFieldByName("mobi_app", "android")
-	msg.TrySetFieldByName("build", 7420400)
+	msg.TrySetFieldByName("build", 8430300)
 	msg.TrySetFieldByName("channel", "alifenfa")
 	msg.TrySetFieldByName("platform", "android")
 	msg.TrySetFieldByName("buvid", "")
 	bytes, _ := msg.Marshal()
 	return base64.StdEncoding.EncodeToString(bytes)
 }
+func getBUVID() string {
+	var hash = strings.ToUpper(randomHex(32))
+	var chars = strings.Split(hash, "")
+	return "XU" + chars[2] + chars[12] + chars[22] + hash
+}
+func getFP() string {
+	return randomHex(64)
+}
+func getDevice(buvid string, fp string) string {
+	msg := dynamic.NewMessage(protoMap[ProtoType.Device])
+	msg.TrySetFieldByName("app_id", 1)
+	msg.TrySetFieldByName("build", 7420400)
+	msg.TrySetFieldByName("buvid", buvid)
+	msg.TrySetFieldByName("platform", "android")
+	msg.TrySetFieldByName("mobi_app", "android")
+	msg.TrySetFieldByName("device", "")
+	msg.TrySetFieldByName("channel", "alifenfa")
+	msg.TrySetFieldByName("brand", "XIAOMI")
+	msg.TrySetFieldByName("model", "android")
+	msg.TrySetFieldByName("osver", "15")
+	msg.TrySetFieldByName("fp_local", fp)
+	msg.TrySetFieldByName("fp_remote", fp)
+	msg.TrySetFieldByName("version_name", "8.43.0")
+	msg.TrySetFieldByName("fp", fp)
+	msg.TrySetFieldByName("fts", time.Now().Unix())
+	msg.TrySetFieldByName("guest_id", "")
+	bytes, _ := msg.Marshal()
+	return base64.StdEncoding.EncodeToString(bytes)
 
+}
 func randomHex(length int) string {
 	var table = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"}
 	var hex = ""
@@ -261,4 +292,17 @@ func randomHex(length int) string {
 		hex = hex + table[rand.Intn(len(table))]
 	}
 	return hex
+}
+func collectProtoFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && filepath.Ext(path) == ".proto" {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
 }

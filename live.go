@@ -59,7 +59,7 @@ func (client BiliClient) GetGuard(room string, liver string, delay int) []LiveUs
 }
 func (client BiliClient) GetGuardByPage(room string, liver string, page int) []LiveUser {
 	var arr = make([]LiveUser, 0)
-	var url = fmt.Sprintf("https://api.live.bilibili.com/xlive/app-room/v2/guardTab/topListNew?roomid=%s&page=%s&ruid=%s&page_size=30", room, strconv.Itoa(page), liver)
+	var url = fmt.Sprintf("https://api.live.com/xlive/app-room/v2/guardTab/topListNew?roomid=%s&page=%s&ruid=%s&page_size=30", room, strconv.Itoa(page), liver)
 	res, _ := client.Resty.R().Get(url)
 	var r = GuardListResponse{}
 	json.Unmarshal(res.Body(), &r)

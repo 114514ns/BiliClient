@@ -1,11 +1,16 @@
 package bili
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"github.com/go-resty/resty/v2"
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
+	"github.com/jhump/protoreflect/dynamic"
+	"io"
 	"math/rand"
 	"net/url"
 	"os"
@@ -17,6 +22,8 @@ type ClientOptions struct {
 	ProxyUser       string
 	ProxyPass       string
 	RandomUserAgent bool
+	ResetConnection bool
+	NoCookie        bool
 }
 
 type BiliClient struct {
@@ -32,6 +39,7 @@ type protoType0 struct {
 	Reply_MainListReq   string
 	Metadata_FawkesReq  string
 	Metadata            string
+	Device              string
 }
 
 var ProtoType protoType0
@@ -75,18 +83,24 @@ func setupClient(client *BiliClient, cookie string) {
 	if err == nil {
 		parser := protoparse.Parser{}
 		{
-			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
-			fd := fds[0]
+
 			ProtoType.Reply_MainListReq = "Reply.MainListReq"
 			ProtoType.Reply_MainListReply = "Reply.MainListReply"
 			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
 			ProtoType.Metadata = "Metadata"
+			ProtoType.Device = "Device"
+
+			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
+			fd := fds[0]
 			protoMap[ProtoType.Reply_MainListReply] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReply")
 			protoMap[ProtoType.Reply_MainListReq] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReq")
+
 			fds, _ = parser.ParseFiles("bilibili/metadata/fawkes.proto")
 			protoMap[ProtoType.Metadata_FawkesReq] = fds[0].FindMessage("bilibili.metadata.fawkes.FawkesReq")
 			fds, _ = parser.ParseFiles("bilibili/metadata.proto")
 			protoMap[ProtoType.Metadata] = fds[0].FindMessage("bilibili.metadata.Metadata")
+			fds, _ = parser.ParseFiles("bilibili/metadata/device.proto")
+			protoMap[ProtoType.Device] = fds[0].FindMessage("bilibili.metadata.device.Device")
 		}
 	}
 	if client.Options.HttpProxy != "" {
@@ -96,6 +110,40 @@ func setupClient(client *BiliClient, cookie string) {
 	client.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
 		if strings.Contains(request.URL, "bilibili.main") {
+			var buvid = getBUVID()
+			var fp = getFP()
+			//var spilt = strings.Split(request.URL, "/")
+			//request.SetHeader(":authority", "app.bilibili.com")
+			//request.SetHeader(":method", "POST")
+			//request.SetHeader(":path", "/"+spilt[3]+"/"+spilt[4])
+			//request.SetHeader(":scheme", "https")
+			request.SetHeader("accept-encoding", "identity")
+			request.SetHeader("grpc-encoding", "gzip")
+			request.SetHeader("grpc-accept-encoding", "gzip")
+			request.SetHeader("env", "prod")
+			request.SetHeader("app-key", "android")
+			request.SetHeader("user-agent", "")
+			request.SetHeader("x-bili-aurora-eid", getAurora(uint64(client.UID)))
+			request.SetHeader("x-bili-mid", toString(client.UID))
+			request.SetHeader("x-bili-aurora-zone", "")
+			request.SetHeader("x-bili-gaia-vtoken", "")
+			request.SetHeader("x-bili-ticket", "")
+			request.SetHeader("x-bili-metadata-bin", getMetadata())
+			request.SetHeader("x-bili-device-bin", getDevice(buvid, fp))
+			request.SetHeader("x-bili-network-bin", "CAEaBjQ2MDAwMA")
+			request.SetHeader("x-bili-restriction-bin", "")
+			request.SetHeader("x-bili-locale-bin", "CggKAnpoGgJDThIICgJ6aBoCQ04")
+			request.SetHeader("x-bili-exps-bin", "")
+			request.SetHeader("buvid", buvid)
+			request.SetHeader("x-bili-fawkes-req-bin", getFawkes())
+			request.SetHeader("content-type", "application/grpc")
+			var payload = request.Body.([]byte)
+
+			frame := make([]byte, 5+len(payload))
+			frame[0] = 0x00
+			binary.BigEndian.PutUint32(frame[1:5], uint32(len(payload)))
+			copy(frame[5:], payload)
+			request.SetBody(frame)
 
 		} else {
 			if client.Options.RandomUserAgent {
@@ -109,7 +157,38 @@ func setupClient(client *BiliClient, cookie string) {
 		//request.Header.Set("Cookie", client.Cookie)
 		return nil
 	})
-	if cookie == "" {
+	client.Resty.OnAfterResponse(func(_ *resty.Client, response *resty.Response) error {
+		url0 := response.Request.URL
+		if strings.Contains(url0, "bilibili.main") {
+			var raw = response.Body()[5:]
+			var dist []byte
+			if response.Body()[0:][0] == 0x01 {
+				gr, _ := gzip.NewReader(bytes.NewReader(raw)) //gzip
+				dist, _ = io.ReadAll(gr)
+			} else {
+				dist = raw
+			}
+
+			var typo = ""
+			if strings.Contains(url0, "Reply/MainList") {
+
+				typo = ProtoType.Reply_MainListReply
+			}
+			msg := dynamic.NewMessage(protoMap[typo])
+			err = msg.Unmarshal(dist)
+			if err != nil {
+				panic(err)
+			}
+			jsonBytes, err := json.MarshalIndent(msg, "", "  ")
+			if err != nil {
+				panic(err)
+			}
+
+			response.SetBody(jsonBytes)
+		}
+		return nil
+	})
+	if cookie == "" && !client.Options.NoCookie {
 		r, _ := client.Resty.R().Get("https://space.bilibili.com/208259/")
 		for _, s := range r.Header().Values("Set-Cookie") {
 			cookie += strings.Split(s, ";")[0] + ";"
@@ -122,6 +201,12 @@ func setupClient(client *BiliClient, cookie string) {
 	client.Cookie = cookie
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
 		request.Header.Set("Cookie", client.Cookie)
+		/*
+			if client.Options.ResetConnection {
+				request.SetHeader("Connection", "closed")
+			}
+
+		*/
 		return nil
 	})
 	client.WBI = NewDefaultWbi()
