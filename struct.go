@@ -32,6 +32,7 @@ type FansClubResponse struct {
 		Item []struct {
 			UID   int64  `json:"uid"`
 			UName string `json:"name"`
+			Face  string `json:"face"`
 			Score int    `json:"score"`
 			Level int8   `json:"level"`
 			Medal struct {

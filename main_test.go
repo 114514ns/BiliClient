@@ -1,83 +1,174 @@
 package bili
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/jhump/protoreflect/dynamic"
-	"google.golang.org/protobuf/encoding/protowire"
-	"log"
 	"os"
+	"os/exec"
+	"strconv"
 	"testing"
 )
 
-func TestDynamic(t *testing.T) {
-
+func getClient() *BiliClient {
 	file, _ := os.ReadFile("cookie.txt")
 
 	var cookie = string(file)
 	cookie = ""
+	client := NewClient(cookie, ClientOptions{
 
-	//launch()
-	/*
-		client := NewClient(cookie, ClientOptions{})
-		client.TraceLive("22749172", nil, nil)
+		RandomUserAgent: true,
+	})
 
-	*/
+	return client
 
-	client := NewClient(cookie, ClientOptions{})
-
-	//client.GetDynamicsByUser(3493118494116797, "-480")
-
-	// 加载二进制数据
-	data, err := os.ReadFile("MainList")
-	//data = data[5:]
-	/*
-
-		gr, err := gzip.NewReader(bytes.NewReader(data))
-		all, err := io.ReadAll(gr)
-		os.WriteFile("MainList", all, 0777)
-		if err != nil {
-			log.Fatalf("读取数据失败: %v", err)
-		}
-
-
-	*/
-	client.GetCommentRPC(114640981925730, "", 1, true)
-
-	msg := dynamic.NewMessage(protoMap["Reply.MainListReply"])
-	err = msg.Unmarshal(data)
-	if err != nil {
-		log.Fatalf("反序列化失败: %v", err)
-	}
-
-	// 5. 打印结果（可以转为 JSON）
-	jsonStr, err := msg.MarshalJSON()
-	if err != nil {
-		log.Fatalf("转为 JSON 失败: %v", err)
-	}
-	fmt.Println(string(jsonStr))
-}
-func isLikelyProtobuf(data []byte) bool {
-	// 能否消费字段 tag
-	num, typ, n := protowire.ConsumeTag(data)
-	if n <= 0 || num > 10000 {
-		return false
-	}
-
-	// 尝试解值
-	switch typ {
-	case protowire.VarintType:
-		_, n := protowire.ConsumeVarint(data[n:])
-		return n > 0
-	case protowire.BytesType:
-		_, n := protowire.ConsumeBytes(data[n:])
-		return n > 0
-	default:
-		return false
-	}
 }
 
+func TestDynamic(t *testing.T) {
+	//获取用户动态
+	client := getClient()
+
+	var array []Dynamic
+
+	dynamics, offset := client.GetDynamicsByUser(3493118494116797)
+	for _, dynamic := range dynamics {
+		array = append(array, dynamic)
+	}
+	dynamics, _ = client.GetDynamicsByUser(3493118494116797, offset)
+	for _, dynamic := range dynamics {
+		array = append(array, dynamic)
+	}
+	PrintJSON(array)
+
+}
+
+func TestLiveDanmaku(t *testing.T) {
+	//直播websocket消息
+	client := getClient()
+	client.TraceLive("https://live.bilibili.com/26854650", PrintLiveMsg, nil)
+}
+
+func TestVideoDetail(t *testing.T) {
+	//视频详细信息
+	var client = getClient()
+	var video = client.GetVideo("BV19U4y1k76P")
+	PrintJSON(video)
+}
+
+func TestUserArchive(t *testing.T) {
+	//用户稿件列表
+	var client = getClient()
+	var videos = client.GetVideoByUser(504140200, 1, true)
+	PrintJSON(videos)
+}
+
+func TestVideoComment(t *testing.T) {
+	//视频评论区
+	var client = getClient()
+	var video = client.GetVideoByUser(504140200, 1, true)[0]
+	comments, _ := video.getComments("", client)
+	PrintJSON(comments)
+}
+
+func TestDynamicComment(t *testing.T) {
+	//获取动态评论内容
+	var client = getClient()
+	dyn, _ := client.GetDynamicsByUser(698029620)
+	comments, _ := dyn[0].GetComments("", client, REPLY_SORT_HOT)
+	PrintJSON(comments)
+}
+
+func TestGetLocation(t *testing.T) {
+	var client = getClient()
+	PrintJSON(client.GetLocation())          //获取当前ip信息
+	PrintJSON(client.GetLocation("8.8.8.8")) //获取指定ip信息
+}
+func TestGetArticle(t *testing.T) {
+	//那两个回调不用管，历史遗留问题
+	PrintJSON(getClient().GetArticle(27148899, nil, nil))
+}
+func TestGetAreas(t *testing.T) {
+	//获取所有直播分区
+	PrintJSON(getClient().GetAreas())
+}
+
+func TestGetFansClub(t *testing.T) {
+	//主播粉丝团
+	list := getClient().GetFansClub("3493080636328319", 300, nil)
+	PrintJSON(list)
+}
+func TestGetOnline(t *testing.T) {
+	//直播间在线榜单
+	var list = getClient().GetOnline("26854650", "3493118494116797")
+	PrintJSON(list)
+}
+func TestGetGuard(t *testing.T) {
+	//主播大航海
+	var list = getClient().GetGuard("26854650", "3493118494116797", 300)
+	PrintJSON(list)
+}
+
+func TestGetFollowing(t *testing.T) {
+	//用户关注列表
+	var list = getClient().GetFollowing("451537183", 300)
+	PrintJSON(list)
+}
+
+func TestLiveStream(t *testing.T) {
+	//直播流
+	var client = getClient()
+	var stream = client.GetLiveStream(strconv.Itoa(client.GetAreaLiveByPage(9, 1)[0].Room))
+	fmt.Println(stream)
+}
+
+func TestAreaLivers(t *testing.T) {
+	//获取分区内开播的直播间
+	var list = getClient().GetAreaLiveByPage(9, 1)
+	PrintJSON(list)
+}
+
+func TestFansMedal(t *testing.T) {
+	//查询用户粉丝牌，需要登录
+	PrintJSON(getClient().GetFansMedal("36136895"))
+}
+
+func TestVideoStream(t *testing.T) {
+	//获取视频流
+	array := getClient().GetVideoStream("BV1uN411C7zz", 1)
+	//audio := array[0]
+	video := array[1]
+	PrintJSON(array)
+	ffplay(video)
+}
 func PrintLiveMsg(action FrontLiveAction) {
 	if action.ActionName == "msg" {
 		fmt.Printf("[%s]   %s\n", action.FromName, action.Extra)
 	}
+	if action.ActionName == "gift" {
+		var giftName = action.Extra
+		if giftName == "" {
+			giftName = action.GiftName
+		}
+		if action.Extra == "" {
+			fmt.Printf("[%s]  投喂了%d个 %s   %f元\n", action.FromName, action.GiftAmount, giftName, action.GiftPrice)
+		} else {
+			//Extra里第一个是盲盒名字，第二个是盲盒价格，逗号分隔
+			//GiftName和GiftPrice是爆出来的礼物的信息
+			fmt.Printf("[%s]  打开了%d个 %s 爆出%s   %f元\n", action.FromName, action.GiftAmount, giftName, action.GiftName, action.GiftPrice)
+		}
+
+	}
+	if action.ActionName == "enter" {
+		fmt.Printf("[%s] 进入直播间\n", action.FromName)
+	}
+}
+
+func PrintJSON(obj interface{}) {
+	bytes, _ := json.MarshalIndent(obj, "", "    ")
+	fmt.Println(string(bytes))
+}
+
+func ffplay(stream string) {
+	cmd := exec.Command("ffplay", stream)
+	out, _ := cmd.CombinedOutput()
+	fmt.Printf("%s\n", string(out))
 }

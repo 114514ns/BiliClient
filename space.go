@@ -22,20 +22,21 @@ var CommentType = CommentType0{
 }
 
 type Dynamic struct {
-	UName     string
-	UID       int64
-	Face      string
-	Images    []string
-	Type      string
-	Title     string
-	Text      string
-	ID        int64
-	BV        string
-	Comments  int
-	Like      int
-	Forward   int
-	CommentID int64
-	CreateAt  time.Time
+	UName       string
+	UID         int64
+	Face        string
+	Images      []string
+	Type        string
+	Title       string
+	Text        string
+	ID          int64
+	BV          string
+	Comments    int
+	Like        int
+	Forward     int
+	CommentID   int64
+	CommentType int
+	CreateAt    time.Time
 }
 type Comment struct {
 	ID      int64
@@ -47,7 +48,6 @@ type Comment struct {
 	Like    int
 	Replies int
 	Reply   []Comment
-	OID     int64
 	ReplyID int64
 	Type    int
 }
@@ -135,26 +135,29 @@ func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]s
 
 func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dynamic, string) {
 	offset := ""
-	if len(offset0) == 0 {
-		offset = "-480"
-	} else {
+	if len(offset0) != 0 {
 		offset = offset0[0]
 	}
-	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?offset&host_mid=%d&timezone_offset=%s&features=itemOpusStyle", user, offset)
+	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid=%d&offset=%s&features=itemOpusStyle", user, offset)
 	u, _ := url2.Parse(url)
 	signed, _ := client.WBI.SignQuery(u.Query(), time.Now())
 	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/feed/space?" + signed.Encode())
 	var obj interface{}
 	json.Unmarshal(res.Body(), &obj)
-	var archives = parseDynamic(obj)
+	var archives = parseDynamic(obj, (offset == "" || offset == "-480"))
 	return archives, getString(obj, "data.offset")
 }
-func parseDynamic(item interface{}) []Dynamic {
+func (dyn *Dynamic) GetComment() {
+
+}
+
+func parseDynamic(item interface{}, isFirst bool) []Dynamic {
 	var result []Dynamic
 	for _, m := range item.(map[string]interface{})["data"].(map[string]interface{})["items"].([]interface{}) {
 		var dynamic = Dynamic{}
 		dynamic.ID = toInt64(getString(m, "id_str"))
 		dynamic.Type = getString(m, "type")
+		var hide = false //指定动态在请求第二页时也会返回，所以如果当前不是请求第一页，要过滤掉。
 		switch getString(m, "type") {
 
 		}
@@ -167,6 +170,9 @@ func parseDynamic(item interface{}) []Dynamic {
 				dynamic.UID = getInt64(i2, "module_author.user.mid")
 				dynamic.UName = getString(i2, "module_author.user.name")
 				dynamic.Face = getString(i2, "module_author.user.face")
+				if getBool(i2, "module_author.is_top") && !isFirst {
+					hide = true
+				}
 			case "MODULE_TYPE_DESC":
 				dynamic.Text = getString(i2, "module_desc.text")
 
@@ -189,10 +195,13 @@ func parseDynamic(item interface{}) []Dynamic {
 				dynamic.Forward = getInt(i2, "module_stat.forward.count")
 				dynamic.Like = getInt(i2, "module_stat.like.count")
 				dynamic.CommentID = toInt64(getString(i2, "module_stat.comment.comment_id"))
+				dynamic.CommentType = getInt(i2, "module_stat.comment.comment_type")
 
 			}
 		}
-		result = append(result, dynamic)
+		if !hide {
+			result = append(result, dynamic)
+		}
 	}
 	return result
 }
@@ -217,13 +226,23 @@ func parseRPCComment(obj interface{}) Comment {
 	comment.Text = getString(obj, "content.message")
 	comment.UName = getString(obj, "member.name")
 	comment.Face = getString(obj, "member.face")
+	reply, ok := obj.(map[string]interface{})["replies"].([]interface{})
+	comment.Reply = make([]Comment, 0)
+	if ok {
+		for _, i := range reply {
+			comment.Reply = append(comment.Reply, parseRPCComment(i))
+		}
+	}
 	if getString(obj, "like") != "" {
 		comment.Like = int(toInt64(getString(obj, "like")))
+	}
+	if getString(obj, "count") != "" {
+		comment.Replies = int(toInt64(getString(obj, "count")))
 	}
 	return comment
 
 }
-func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comment {
+func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) ([]Comment, string) {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/wbi/main?oid=%d&type=%d&mode=%d&pagination_str=%s", oid, type0, 3, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
 	url, _ := url2.Parse(u)
 	signed, _ := client.WBI.SignQuery(url.Query(), time.Now())
@@ -239,23 +258,31 @@ func (client *BiliClient) GetComment(oid int64, cursor string, type0 int) []Comm
 		comment.UName = reply.Member.Uname
 		comment.Face = reply.Member.Avatar
 		comment.Like = reply.Like
-		comment.OID = oid
+		comment.ID = oid
 		comment.Type = type0
 		comment.Replies = reply.Count
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
 		comment.Reply = make([]Comment, 0)
 		for _, response := range reply.Replies {
 			comment.Reply = append(comment.Reply, parseComment(response))
-			comment.OID = oid
+			comment.ID = oid
 			comment.Type = type0
 		}
 
 		list = append(list, comment)
 
 	}
-	return list
+	return list, obj.Data.Cursor.PaginationReply.NextOffset
 }
-func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, byHot bool) ([]Comment, string) {
+
+type ReplySort string
+
+const (
+	REPLY_SORT_TIME = "MAIN_LIST_TIME"
+	REPLY_SORT_HOT  = "MAIN_LIST_HOT"
+)
+
+func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sort ...ReplySort) ([]Comment, string) {
 
 	var jsonStr = `
 		{
@@ -271,8 +298,8 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, byH
 		}
 		`
 	var mode = "MAIN_LIST_HOT"
-	if !byHot {
-		mode = "MAIN_LIST_TIME"
+	if len(sort) > 0 {
+		mode = string(sort[0])
 	}
 	var processed = fmt.Sprintf(jsonStr, oid, type0, mode, cursor)
 	msg := dynamic.NewMessage(protoMap[ProtoType.Reply_MainListReq])
@@ -311,7 +338,7 @@ func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) [
 		comment.UName = reply.Member.Uname
 		comment.Face = reply.Member.Avatar
 		comment.Like = reply.Like
-		comment.OID = oid
+		comment.ID = oid
 		comment.Replies = len(reply.Replies)
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
 		comment.Type = type0
@@ -323,14 +350,23 @@ func (client *BiliClient) GetReply(oid int64, root int64, page int, type0 int) [
 
 }
 func (comment *Comment) GetReply(page int, client *BiliClient) []Comment {
-	return client.GetReply(comment.OID, comment.ReplyID, page, CommentType.Dynamic)
+	return client.GetReply(comment.ID, comment.ReplyID, page, CommentType.Dynamic)
 }
-func (archive *Dynamic) GetComments(cursor string, client *BiliClient) []Comment {
+func (archive *Dynamic) GetComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Comment, string) {
 	t := CommentType.Dynamic
 	if archive.BV != "" {
 		t = CommentType.Video
 	}
-	return client.GetComment(archive.CommentID, cursor, t)
+	if client.UID == 0 {
+		return client.GetCommentRPC(archive.CommentID, cursor, archive.CommentType, sort...)
+	} else {
+
+		if len(sort) == 1 {
+
+		}
+		return client.GetComment(archive.CommentID, cursor, t)
+	}
+
 }
 func (client *BiliClient) SetAnnouce(content string) {
 	split := strings.Split(client.Cookie, ";")

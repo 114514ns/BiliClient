@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/jinzhu/copier"
 	"golang.org/x/net/html"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -18,12 +16,12 @@ type Video struct {
 	Aid         int64
 	Title       string
 	Desc        string
-	Author      string
+	UName       string
 	UID         int64
 	Cover       string
 	BV          string
-	PublishAt   string
-	AuthorFace  string
+	CreateAt    time.Time
+	Face        string
 	Cid         int
 	Duration    string
 	Part        int
@@ -35,38 +33,49 @@ type Video struct {
 	Like        int
 	Danmaku     int
 	Favorite    int
-	Comment     int
+	Tags        []string
 }
 
 func (v *Video) GetStream(client *BiliClient) []string {
 	return client.GetVideoStream(v.BV, 1)
 }
 
+func parseVideo() {
+
+}
+
 func (client BiliClient) GetVideo(bv string) (result []Video) {
 	res, _ := client.Resty.R().
 		Get("https://api.bilibili.com/x/web-interface/view/detail?bvid=" + bv)
 
-	var resObj = VideoResponse{}
-	json.Unmarshal(res.Body(), &resObj)
-
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
 	var array = []Video{}
-
-	for i, item := range resObj.Data.Pages {
+	for _, i := range getArray(obj, "data.View.pages") {
 		var video = Video{}
-		copier.Copy(&video, resObj.Data.Stat)
-		video.Author = resObj.Data.Owner.Name
-		video.ParentTitle = resObj.Data.Title
+		video.Desc = getString(obj, "data.View.desc")
+		video.Title = getString(i, "part")
 		video.BV = bv
-		video.Desc = resObj.Data.Desc
-		video.Title = item.Title
-		video.Part = i + 1
-		video.Cid = item.Cid
-		video.Duration = FormatDuration(item.Duration)
-		video.PublishAt = time.Unix(resObj.Data.PublishAt, 0).Format(time.DateTime)
-		video.Cover = resObj.Data.Cover
-		video.UID = resObj.Data.Owner.Mid
-		video.AuthorFace = resObj.Data.Owner.Face
-		video.Comment = resObj.Data.Stat.Reply
+		video.Duration = FormatDuration(getInt(i, "duration"))
+		video.Cover = getString(obj, "data.View.pic")
+		video.UID = getInt64(obj, "data.View.owner.mid")
+		video.Reply = getInt(obj, "data.View.stat.reply")
+		video.View = getInt(obj, "data.View.stat.view")
+		video.Danmaku = getInt(obj, "data.View.stat.danmaku")
+		video.Favorite = getInt(obj, "data.View.stat.favorite")
+		video.Coin = getInt(obj, "data.View.stat.coin")
+		video.Like = getInt(obj, "data.View.stat.like")
+		video.Share = getInt(obj, "data.View.stat.share")
+		video.CreateAt = time.Unix(int64(getInt(obj, "data.View.ctime")), 0)
+		video.Reply = getInt(obj, "data.View.stat.reply")
+		video.UName = getString(obj, "data.View.owner.name")
+		video.Face = getString(obj, "data.View.owner.face")
+		video.Aid = getInt64(obj, "data.View.stat.aid")
+		video.Cid = getInt(i, "cid")
+		video.Tags = []string{}
+		for _, tag := range getArray(obj, "data.Tags") {
+			video.Tags = append(video.Tags, getString(tag, "tag_name"))
+		}
 		array = append(array, video)
 	}
 
@@ -77,54 +86,35 @@ func (client *BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (resul
 	if byHot {
 		order = "click"
 	}
-	htmlRes, _ := client.Resty.R().Get("https://space.bilibili.com/2/upload/video")
-	reader := bytes.NewReader(htmlRes.Body())
-	root, _ := html.Parse(reader)
-	find := goquery.NewDocumentFromNode(root).Find("script")
-	access := ""
-	dmImgStr := GenerateBase64RandomString(16, 64)
-	dmImgStr = dmImgStr[0 : len(dmImgStr)-2]
-	cover := GenerateBase64RandomString(32, 128)
-	cover = cover[0 : len(cover)-2]
-	inter := `{"ds":[],"wh":[0,0,0],"of":[0,0,0]}`
-	find.Each(func(i int, s *goquery.Selection) {
-		if strings.Contains(s.Text(), "access_id") {
-			access, _ = url.PathUnescape(s.Text())
-		}
-	})
-	var i interface{}
-	json.Unmarshal([]byte(access), &i)
-	m, _ := i.(map[string]interface{})
-	access, _ = m["access_id"].(string)
-	u := fmt.Sprintf("https://api.bilibili.com/x/space/wbi/arc/search?pn=%d&ps=42&mid=%d&order=%s&w_webid=%s&dm_img_list=[]&dm_img_str=%s&dm_cover_img_str=%s&dm_img_inter=%s", page, mid, order, access, dmImgStr, cover, inter)
-	u1, _ := url.Parse(u)
-	signed, _ := client.WBI.SignQuery(u1.Query(), time.Now())
-	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/space/wbi/arc/search?" + signed.Encode())
+	u := fmt.Sprintf("https://api.bilibili.com/x/space/arc/search?pn=%d&ps=42&mid=%d&order=%s&web_location=bilibili-electron", page, mid, order)
+
+	res, _ := client.Resty.R().Get(u)
 	var resObj = UserVideoListResponse{}
 	json.Unmarshal(res.Body(), &resObj)
 	list := make([]Video, 0)
 
-	e := appendDM(fmt.Sprintf("https://api.bilibili.com/x/space/wbi/arc/search?pn=%d&ps=42&mid=%d&order=%s", page, mid, "pubtime"), client)
-	fmt.Println(e)
 	for _, s := range resObj.Data.List.Vlist {
 		var video = Video{}
 		video.BV = s.Bvid
-		video.Author = s.Author
+		video.UName = s.Author
 		video.UID = s.Mid
 		video.Desc = s.Description
 		video.Title = s.Title
 		video.View = s.Play
 		video.Cover = s.Pic
-		video.Comment = s.Comment
+		video.Reply = s.Comment
 		video.Danmaku = s.VideoReview
-		video.PublishAt = time.Unix(int64(s.Created), 0).Format(time.DateTime)
+		video.CreateAt = time.Unix(int64(s.Created), 0)
 		video.Duration = s.Length
 		video.Aid = s.Aid
 		list = append(list, video)
 	}
 	return list
 }
-func (video *Video) getComments(cursor string, client *BiliClient) []Comment {
+func (video *Video) getComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Comment, string) {
+	if client.UID == 0 {
+		return client.GetCommentRPC(video.Aid, cursor, CommentType.Video, sort...)
+	}
 	return client.GetComment(video.Aid, cursor, CommentType.Video)
 }
 func (client BiliClient) GetVideoStream(bv string, part int) []string {

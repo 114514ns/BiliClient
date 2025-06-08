@@ -45,6 +45,8 @@ func (client *BiliClient) GetLocation(ip string){} Location //获取指定ip信�
 func (client *BiliClient) GetArticle(cv int64) Archive{} //获取专栏信息和内容
 ~~~
 
+具体用法参考main.test.go
+
 # Referer
 接口文档：[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 <br/>

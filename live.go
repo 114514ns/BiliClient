@@ -114,9 +114,11 @@ func (client BiliClient) GetFansClub(liver string, delay int, onError func(msg s
 			var d = LiveUser{}
 			d.Score = s.Score
 			d.Medal.GuardLevel = s.Medal.Type
+			d.Guard = s.Medal.Type
 			d.Medal.Level = s.Medal.Level
 			d.UID = s.UID
 			d.Name = s.UName
+			d.Face = s.Face
 			d.Medal.Name = s.Medal.Name
 			list = append(list, d)
 		}
@@ -187,6 +189,7 @@ func (client BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {
 		liver.Room = s2.Room
 		liver.Title = s2.Title
 		liver.Cover = s2.Cover
+		liver.UName = s2.UName
 		array = append(array, liver)
 	}
 	return array

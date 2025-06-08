@@ -101,11 +101,13 @@ func toInt64(s string) int64 {
 }
 
 type JsonType struct {
-	s   string
-	i   int
-	i64 int64
-	f32 float32
-	f64 float64
+	s     string
+	i     int
+	i64   int64
+	f32   float32
+	f64   float64
+	array []interface{}
+	v     bool
 }
 
 func getInt(obj interface{}, path string) int {
@@ -116,6 +118,12 @@ func getInt64(obj interface{}, path string) int64 {
 }
 func getString(obj interface{}, path string) string {
 	return getObject(obj, path, "string").s
+}
+func getArray(obj interface{}, path string) []interface{} {
+	return getObject(obj, path, "array").array
+}
+func getBool(obj interface{}, path string) bool {
+	return getObject(obj, path, "bool").v
 }
 func getObject(obj interface{}, path string, typo string) JsonType {
 	var array = strings.Split(path, ".")
@@ -151,6 +159,14 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 					if typo == "int64" {
 						st.i64 = int64(value.(float64))
 					}
+				}
+				if t.Kind() == reflect.Slice {
+					if typo == "array" {
+						st.array = value.([]interface{})
+					}
+				}
+				if t.Kind() == reflect.Bool {
+					st.v = value.(bool)
 				}
 			}
 

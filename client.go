@@ -153,7 +153,11 @@ func setupClient(client *BiliClient, cookie string) {
 			}
 		}
 
-		request.Header.Set("Referer", "https://www.bilibili.com/")
+		var ref = ""
+		if strings.Contains(request.URL, "electron") {
+			ref = "client"
+		}
+		request.Header.Set("Referer", "https://www.bilibili.com/"+ref)
 		//request.Header.Set("Cookie", client.Cookie)
 		return nil
 	})

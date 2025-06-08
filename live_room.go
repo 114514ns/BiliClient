@@ -106,6 +106,9 @@ func (client *BiliClient) GetHistory(room int, onResponse func(string)) {
 }
 
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {
+	if strings.Contains(room, "https") {
+		room = strings.Split(room, "/")[3:][0]
+	}
 	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room + "&is_anchor=true"
 	query, _ := url.Parse(url0)
 	signed, _ := client.WBI.SignQuery(query.Query(), time.Now())
@@ -262,6 +265,10 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					price := float64(GiftPrice[info.Data.GiftName]) * float64(info.Data.Num)
 					result, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", price), 64)
 					action.GiftPrice = float32(result)
+					if price == 0 {
+						price = float64(info.Data.Price) / 1000 * float64(info.Data.Num)
+						action.GiftPrice = float32(price)
+					}
 					action.GiftAmount = int16(info.Data.Num)
 					if info.Data.Parent.GiftName != "" {
 						action.Extra = info.Data.Parent.GiftName + "," + strconv.Itoa(info.Data.Parent.Price/1000)
