@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 type ClientOptions struct {
@@ -80,6 +81,8 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 }
 func setupClient(client *BiliClient, cookie string) {
 	_, err := os.Open("bilibili")
+	client.Resty.SetRetryCount(15)
+	client.Resty.SetRetryWaitTime(time.Microsecond * 1500)
 	if err == nil {
 		parser := protoparse.Parser{}
 		{

@@ -174,9 +174,9 @@ func (client BiliClient) GetLiveStream(room string) string {
 }
 func (client BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {
 	var now = time.Now()
-	u, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?platform=web&parent_area_id=%d&area_id=0&sort_type=&page=%d&vajra_business_key=&web_location=444.43", area, page))
+	u, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?parent_area_id=%d&area_id=0&sort_type=&page=%d&&platform=web&device=win&build=1001016004&web_location=bilibili-electron", area, page))
 	s, _ := client.WBI.SignQuery(u.Query(), now)
-	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-interface/v1/second/getList?" + s.Encode())
+	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?" + s.Encode())
 	obj := AreaLiverListResponse{}
 	json.Unmarshal(res.Body(), &obj)
 	var array = make([]AreaLiver, 0)

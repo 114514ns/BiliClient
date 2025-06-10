@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func getClient() *BiliClient {
@@ -29,13 +30,30 @@ func TestDynamic(t *testing.T) {
 
 	var array []Dynamic
 
-	dynamics, offset := client.GetDynamicsByUser(3493118494116797)
-	for _, dynamic := range dynamics {
-		array = append(array, dynamic)
-	}
-	dynamics, _ = client.GetDynamicsByUser(3493118494116797, offset)
-	for _, dynamic := range dynamics {
-		array = append(array, dynamic)
+	/*
+
+		dynamics, offset := client.GetDynamicsByUser(3493118494116797)
+		for _, dynamic := range dynamics {
+			array = append(array, dynamic)
+		}
+		dynamics, _ = client.GetDynamicsByUser(3493118494116797, offset)
+		for _, dynamic := range dynamics {
+			array = append(array, dynamic)
+		}
+
+	*/
+
+	offset := ""
+	for {
+		dynamics, offset0 := client.GetDynamicsByUser(82044006, offset)
+		if "" == offset0 {
+			break
+		}
+		offset = offset0
+		for _, dynamic := range dynamics {
+			array = append(array, dynamic)
+		}
+		time.Sleep(1 * time.Second)
 	}
 	PrintJSON(array)
 
@@ -44,7 +62,7 @@ func TestDynamic(t *testing.T) {
 func TestLiveDanmaku(t *testing.T) {
 	//直播websocket消息
 	client := getClient()
-	client.TraceLive("https://live.bilibili.com/26854650", PrintLiveMsg, nil)
+	client.TraceLive("https://live.bilibili.com/189382", PrintLiveMsg, nil)
 }
 
 func TestVideoDetail(t *testing.T) {
@@ -140,8 +158,16 @@ func TestVideoStream(t *testing.T) {
 	ffplay(video)
 }
 func PrintLiveMsg(action FrontLiveAction) {
+	var medalTag = ""
+	if action.MedalName != "" {
+		medalTag = fmt.Sprintf("[%s]", action.MedalName)
+	}
+	var levelTag = ""
+	if action.MedalLevel != 0 {
+		levelTag = fmt.Sprintf("[LV%d]", action.MedalLevel)
+	}
 	if action.ActionName == "msg" {
-		fmt.Printf("[%s]   %s\n", action.FromName, action.Extra)
+		fmt.Printf("%s%s[%s]   %s\n", medalTag, levelTag, action.FromName, action.Extra)
 	}
 	if action.ActionName == "gift" {
 		var giftName = action.Extra
@@ -153,7 +179,8 @@ func PrintLiveMsg(action FrontLiveAction) {
 		} else {
 			//Extra里第一个是盲盒名字，第二个是盲盒价格，逗号分隔
 			//GiftName和GiftPrice是爆出来的礼物的信息
-			fmt.Printf("[%s]  打开了%d个 %s 爆出%s   %f元\n", action.FromName, action.GiftAmount, giftName, action.GiftName, action.GiftPrice)
+
+			fmt.Printf("%s  %ss  [%s]  打开了%d个 %s 爆出%s   %f元\n", medalTag, levelTag, action.FromName, action.GiftAmount, giftName, action.GiftName, action.GiftPrice)
 		}
 
 	}

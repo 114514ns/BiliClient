@@ -22,6 +22,7 @@ var CommentType = CommentType0{
 }
 
 type Dynamic struct {
+	Top         bool
 	UName       string
 	UID         int64
 	Face        string
@@ -37,6 +38,7 @@ type Dynamic struct {
 	CommentID   int64
 	CommentType int
 	CreateAt    time.Time
+	ForwardFrom int64
 }
 type Comment struct {
 	ID      int64
@@ -138,10 +140,13 @@ func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dy
 	if len(offset0) != 0 {
 		offset = offset0[0]
 	}
-	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid=%d&offset=%s&features=itemOpusStyle", user, offset)
+	url := fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid=%d&offset=%s&web_location=electron", user, offset)
 	u, _ := url2.Parse(url)
 	signed, _ := client.WBI.SignQuery(u.Query(), time.Now())
-	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/feed/space?" + signed.Encode())
+	res, err := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/feed/space?" + signed.Encode())
+	if err != nil {
+		return []Dynamic{}, "-1"
+	}
 	var obj interface{}
 	json.Unmarshal(res.Body(), &obj)
 	var archives = parseDynamic(obj, (offset == "" || offset == "-480"))
@@ -151,56 +156,71 @@ func (dyn *Dynamic) GetComment() {
 
 }
 
+func parseDynamic0(m interface{}) []Dynamic {
+	var result []Dynamic
+	var dynamic = Dynamic{}
+	dynamic.ID = toInt64(getString(m, "id_str"))
+	dynamic.Type = getString(m, "type")
+	_, ok := m.(map[string]interface{})["orig"]
+	if ok {
+		dynamic.ForwardFrom = toInt64(getString(m, "orig.id_str"))
+	}
+
+	for _, i2 := range m.(map[string]interface{})["modules"].([]interface{}) {
+		switch getString(i2, "module_type") {
+
+		case "MODULE_TYPE_AUTHOR":
+			dynamic.CreateAt = time.Unix(getInt64(i2, "module_author.pub_ts"), 0)
+			dynamic.UID = getInt64(i2, "module_author.user.mid")
+			dynamic.UName = getString(i2, "module_author.user.name")
+			dynamic.Face = getString(i2, "module_author.user.face")
+			dynamic.Top = getBool(i2, "module_author.is_top")
+		case "MODULE_TYPE_DESC":
+			dynamic.Text = getString(i2, "module_desc.text")
+
+		case "MODULE_TYPE_DYNAMIC":
+			var images []string
+			typo := getString(i2, "module_dynamic.type")
+			if typo == "MDL_DYN_TYPE_DRAW" {
+				for _, o := range i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_draw"].(map[string]interface{})["items"].([]interface{}) {
+					images = append(images, getString(o, "src"))
+				}
+				dynamic.Images = images
+			}
+			if typo == "MDL_DYN_TYPE_ARCHIVE" {
+				dynamic.BV = getString(i2, "module_dynamic.dyn_archive.bvid")
+				dynamic.Images = []string{getString(i2, "module_dynamic.dyn_archive.cover")}
+				dynamic.Title = getString(i2, "module_dynamic.dyn_archive.title")
+			}
+			if typo == "MDL_DYN_TYPE_FORWARD" {
+				result = append(result, parseDynamic0(i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_forward"].(map[string]interface{})["item"])...)
+			}
+		case "MODULE_TYPE_STAT":
+			dynamic.Comments = getInt(i2, "module_stat.comment.count")
+			dynamic.Forward = getInt(i2, "module_stat.forward.count")
+			dynamic.Like = getInt(i2, "module_stat.like.count")
+			dynamic.CommentID = toInt64(getString(i2, "module_stat.comment.comment_id"))
+			dynamic.CommentType = getInt(i2, "module_stat.comment.comment_type")
+
+		}
+
+	}
+	result = append(result, dynamic)
+	return result
+}
+
 func parseDynamic(item interface{}, isFirst bool) []Dynamic {
 	var result []Dynamic
 	for _, m := range item.(map[string]interface{})["data"].(map[string]interface{})["items"].([]interface{}) {
-		var dynamic = Dynamic{}
-		dynamic.ID = toInt64(getString(m, "id_str"))
-		dynamic.Type = getString(m, "type")
-		var hide = false //指定动态在请求第二页时也会返回，所以如果当前不是请求第一页，要过滤掉。
-		switch getString(m, "type") {
 
+		dyn := parseDynamic0(m)[0]
+		if !(isFirst && dyn.Top) {
+			result = append(result, dyn)
 		}
-
-		for _, i2 := range m.(map[string]interface{})["modules"].([]interface{}) {
-			switch getString(i2, "module_type") {
-
-			case "MODULE_TYPE_AUTHOR":
-				dynamic.CreateAt = time.Unix(getInt64(i2, "module_author.pub_ts"), 0)
-				dynamic.UID = getInt64(i2, "module_author.user.mid")
-				dynamic.UName = getString(i2, "module_author.user.name")
-				dynamic.Face = getString(i2, "module_author.user.face")
-				if getBool(i2, "module_author.is_top") && !isFirst {
-					hide = true
-				}
-			case "MODULE_TYPE_DESC":
-				dynamic.Text = getString(i2, "module_desc.text")
-
-			case "MODULE_TYPE_DYNAMIC":
-				var images []string
-				typo := getString(i2, "module_dynamic.type")
-				if typo == "MDL_DYN_TYPE_DRAW" {
-					for _, o := range i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_draw"].(map[string]interface{})["items"].([]interface{}) {
-						images = append(images, getString(o, "src"))
-					}
-					dynamic.Images = images
-				}
-				if typo == "MDL_DYN_TYPE_ARCHIVE" {
-					dynamic.BV = getString(i2, "module_dynamic.dyn_archive.bvid")
-					dynamic.Images = []string{getString(i2, "module_dynamic.dyn_archive.cover")}
-					dynamic.Title = getString(i2, "module_dynamic.dyn_archive.title")
-				}
-			case "MODULE_TYPE_STAT":
-				dynamic.Comments = getInt(i2, "module_stat.comment.count")
-				dynamic.Forward = getInt(i2, "module_stat.forward.count")
-				dynamic.Like = getInt(i2, "module_stat.like.count")
-				dynamic.CommentID = toInt64(getString(i2, "module_stat.comment.comment_id"))
-				dynamic.CommentType = getInt(i2, "module_stat.comment.comment_type")
-
+		if dyn.ForwardFrom != 0 {
+			for _, d := range parseDynamic0(m.(map[string]interface{})["orig"]) {
+				result = append(result, d)
 			}
-		}
-		if !hide {
-			result = append(result, dynamic)
 		}
 	}
 	return result
