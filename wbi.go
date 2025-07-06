@@ -247,7 +247,7 @@ func (wbi *WBI) doInitWbi() {
 		}
 	}{}
 
-	resp, _ := resty.New().R().
+	resp, err := resty.New().R().
 		SetHeader("Accept", "application/json").
 		SetHeader("Accept-Language", "zh-CN,zh;q=0.9").
 		SetHeader("Origin", "https://www.bilibili.com").
@@ -256,6 +256,10 @@ func (wbi *WBI) doInitWbi() {
 		SetCookies(wbi.cookies).
 		SetResult(&result).
 		Get("https://api.bilibili.com/x/web-interface/nav")
+
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	if result.Code != 0 {
 		if result.Data.WbiImg.ImgUrl == "" || result.Data.WbiImg.SubUrl == "" {
@@ -271,5 +275,6 @@ func (wbi *WBI) doInitWbi() {
 	imgKey := strings.Split(strings.Split(result.Data.WbiImg.ImgUrl, "/")[len(strings.Split(result.Data.WbiImg.ImgUrl, "/"))-1], ".")[0]
 	subKey := strings.Split(strings.Split(result.Data.WbiImg.SubUrl, "/")[len(strings.Split(result.Data.WbiImg.SubUrl, "/"))-1], ".")[0]
 
+	//wbi.SetKeys("7cd084941338484aae1ad9425b84077c", "4932caff0ff746eab6f01bf08b70ac45")
 	wbi.SetKeys(imgKey, subKey)
 }

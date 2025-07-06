@@ -172,6 +172,10 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 
 			return st
 		} else {
+
+			if inner[s] == nil {
+				return st
+			}
 			inner = inner[s].(map[string]interface{})
 		}
 	}

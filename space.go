@@ -1,11 +1,12 @@
 package bili
 
 import (
-	"encoding/json"
 	"fmt"
+	json "github.com/bytedance/sonic"
 	"github.com/jhump/protoreflect/dynamic"
 	"html"
 	url2 "net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -39,6 +40,8 @@ type Dynamic struct {
 	CommentType int
 	CreateAt    time.Time
 	ForwardFrom int64
+	RawResponse string
+	Forwarded   bool
 }
 type Comment struct {
 	ID      int64
@@ -81,16 +84,17 @@ type FaceMap struct {
 }
 
 type User struct {
-	UName      string
-	UID        int64
-	Bio        string
-	Face       string
-	Fans       uint
-	Level      int8
-	VerifyType int8
-	Archives   uint
-	Like       uint
-	Verify     string
+	UName       string
+	UID         int64
+	Bio         string
+	Face        string
+	Fans        uint
+	Level       int8
+	VerifyType  int8
+	Archives    uint
+	Like        uint
+	Verify      string
+	RawResponse string
 }
 
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
@@ -145,10 +149,16 @@ func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dy
 	signed, _ := client.WBI.SignQuery(u.Query(), time.Now())
 	res, err := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/feed/space?" + signed.Encode())
 	if err != nil {
+		fmt.Println(err)
 		return []Dynamic{}, "-1"
 	}
 	var obj interface{}
 	json.Unmarshal(res.Body(), &obj)
+	if getString(obj, "message") != "0" {
+		fmt.Println(res.String())
+
+		return client.GetDynamicsByUser(user, offset0...)
+	}
 	var archives = parseDynamic(obj, (offset == "" || offset == "-480"))
 	return archives, getString(obj, "data.offset")
 }
@@ -160,6 +170,12 @@ func parseDynamic0(m interface{}) []Dynamic {
 	var result []Dynamic
 	var dynamic = Dynamic{}
 	dynamic.ID = toInt64(getString(m, "id_str"))
+	if dynamic.ID == 0 {
+		dynamic.ID = getInt64(m, "id_str")
+	}
+	if dynamic.ID == 0 {
+		time.Now()
+	}
 	dynamic.Type = getString(m, "type")
 	_, ok := m.(map[string]interface{})["orig"]
 	if ok {
@@ -193,6 +209,7 @@ func parseDynamic0(m interface{}) []Dynamic {
 				dynamic.Title = getString(i2, "module_dynamic.dyn_archive.title")
 			}
 			if typo == "MDL_DYN_TYPE_FORWARD" {
+				dynamic.ForwardFrom = toInt64(getString(i2, "module_dynamic.dyn_forward.item.id_str"))
 				result = append(result, parseDynamic0(i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_forward"].(map[string]interface{})["item"])...)
 			}
 		case "MODULE_TYPE_STAT":
@@ -206,6 +223,9 @@ func parseDynamic0(m interface{}) []Dynamic {
 
 	}
 	result = append(result, dynamic)
+	sort.SliceStable(result, func(i, j int) bool {
+		return true
+	})
 	return result
 }
 
@@ -213,14 +233,15 @@ func parseDynamic(item interface{}, isFirst bool) []Dynamic {
 	var result []Dynamic
 	for _, m := range item.(map[string]interface{})["data"].(map[string]interface{})["items"].([]interface{}) {
 
-		dyn := parseDynamic0(m)[0]
-		if !(isFirst && dyn.Top) {
-			result = append(result, dyn)
-		}
-		if dyn.ForwardFrom != 0 {
-			for _, d := range parseDynamic0(m.(map[string]interface{})["orig"]) {
-				result = append(result, d)
-			}
+		parse := parseDynamic0(m)
+
+		dyn := parse[0]
+		dyn.RawResponse, _ = json.ConfigFastest.MarshalToString(&m)
+		dyn.Forwarded = false
+		result = append(result, dyn)
+		if len(parse) == 2 {
+			parse[1].Forwarded = true
+			result = append(result, parse[1])
 		}
 	}
 	return result
@@ -458,6 +479,7 @@ func (client *BiliClient) GetUser(id int64) (User, int) {
 	user.Fans = uint(getInt(obj, "data.follower"))
 	user.Verify = strings.Replace(getString(obj, "data.card.official_verify.desc"), "、", ",", 1145)
 	user.VerifyType = int8(getInt(obj, "data.card.official_verify.type"))
+	user.RawResponse = res.String()
 	return user, 1
 }
 

@@ -14,11 +14,8 @@ func getClient() *BiliClient {
 	file, _ := os.ReadFile("cookie.txt")
 
 	var cookie = string(file)
-	cookie = ""
-	client := NewClient(cookie, ClientOptions{
-
-		RandomUserAgent: true,
-	})
+	//cookie = ""
+	client := NewClient(cookie, ClientOptions{})
 
 	return client
 
@@ -27,6 +24,7 @@ func getClient() *BiliClient {
 func TestDynamic(t *testing.T) {
 	//获取用户动态
 	client := getClient()
+	client.Options.NoCookie = true
 
 	var array []Dynamic
 
@@ -49,10 +47,14 @@ func TestDynamic(t *testing.T) {
 		if "" == offset0 {
 			break
 		}
-		offset = offset0
-		for _, dynamic := range dynamics {
-			array = append(array, dynamic)
+		if offset0 != "-1" {
+			offset = offset0
+			for _, dynamic := range dynamics {
+				array = append(array, dynamic)
+			}
 		}
+
+		fmt.Println(len(array))
 		time.Sleep(1 * time.Second)
 	}
 	PrintJSON(array)
@@ -62,20 +64,26 @@ func TestDynamic(t *testing.T) {
 func TestLiveDanmaku(t *testing.T) {
 	//直播websocket消息
 	client := getClient()
-	client.TraceLive("https://live.bilibili.com/189382", PrintLiveMsg, nil)
+	client.TraceLive("https://live.bilibili.com/3237809", PrintLiveMsg, nil)
 }
 
 func TestVideoDetail(t *testing.T) {
 	//视频详细信息
 	var client = getClient()
-	var video = client.GetVideo("BV19U4y1k76P")
+	var video = client.GetVideo("BV1qb411i73")
 	PrintJSON(video)
 }
 
 func TestUserArchive(t *testing.T) {
 	//用户稿件列表
 	var client = getClient()
-	var videos = client.GetVideoByUser(504140200, 1, true)
+	var videos = client.GetVideoByUser(504140200, 1, false)
+	PrintJSON(videos)
+	time.Sleep(1 * time.Second)
+	videos = client.GetVideoByUser(504140200, 2, false)
+	PrintJSON(videos)
+	time.Sleep(1 * time.Second)
+	videos = client.GetVideoByUser(504140200, 3, false)
 	PrintJSON(videos)
 }
 
@@ -135,18 +143,38 @@ func TestLiveStream(t *testing.T) {
 	//直播流
 	var client = getClient()
 	var stream = client.GetLiveStream(strconv.Itoa(client.GetAreaLiveByPage(9, 1)[0].Room))
+	stream = client.GetLiveStream("26854650")
 	fmt.Println(stream)
 }
 
 func TestAreaLivers(t *testing.T) {
 	//获取分区内开播的直播间
-	var list = getClient().GetAreaLiveByPage(9, 1)
-	PrintJSON(list)
+	var total = 0
+	var page = 1
+	for {
+		var list = getClient().GetAreaLiveByPage(9, page)
+		page++
+		total += len(list)
+		if len(list) == 0 {
+			break
+		}
+		time.Sleep(time.Second * 2)
+	}
+	PrintJSON(total)
 }
 
 func TestFansMedal(t *testing.T) {
 	//查询用户粉丝牌，需要登录
 	PrintJSON(getClient().GetFansMedal("36136895"))
+}
+
+func TestSearchVideo(t *testing.T) {
+	var opinion = SearchOption{
+		Keyword:   "虚拟主播",
+		BeginTime: time.Date(2025, 2, 5, 0, 0, 0, 0, time.Local),
+		EndTime:   time.Date(2025, 2, 6, 0, 0, 0, 0, time.Local),
+	}
+	PrintJSON(getClient().SearchVideo(opinion))
 }
 
 func TestVideoStream(t *testing.T) {
@@ -185,7 +213,7 @@ func PrintLiveMsg(action FrontLiveAction) {
 
 	}
 	if action.ActionName == "enter" {
-		fmt.Printf("[%s] 进入直播间\n", action.FromName)
+		//fmt.Printf("[%s] 进入直播间\n", action.FromName)
 	}
 }
 

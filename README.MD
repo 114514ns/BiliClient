@@ -6,7 +6,14 @@
 `创建默认Cookie的Client`
 ~~~go
 
-client := NewAnonymousClient()
+client := NewClient(cookie, ClientOptions{
+
+HttpProxy: "0.0.0.0:8080",
+ProxyUser: "admin",
+ProxyPass: "PZ8u9Pr2oz",
+
+RandomUserAgent: true,
+})
 ~~~
 `使用指定Cookie创建Client`
 ~~~go
@@ -28,7 +35,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 func (client BiliClient) GetVideo(bv string){} (result []Video) //解析视频，如果有分p视频，则一并返回
 func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool){} (result []Video) //获取用户的稿件
 func (client BiliClient) GetVideoStream(bv string, part int) []string {} //获取视频流
-
+func (client *BiliClient) SearchVideo(opinion SearchOption) []Video {} //搜索视频
 ~~~
 
 ### 空间相关

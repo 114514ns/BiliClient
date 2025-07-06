@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
+	json "github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 )
 
 type ClientOptions struct {
@@ -34,6 +33,7 @@ type BiliClient struct {
 	UserAgent string
 	UID       int64
 	Options   ClientOptions
+	Address   string
 }
 type protoType0 struct {
 	Reply_MainListReply string
@@ -80,9 +80,19 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 	return client
 }
 func setupClient(client *BiliClient, cookie string) {
+
 	_, err := os.Open("bilibili")
-	client.Resty.SetRetryCount(15)
-	client.Resty.SetRetryWaitTime(time.Microsecond * 1500)
+	//client.Resty.SetRetryCount(15)
+	/*
+		tr, err := srt.NewSpoofedRoundTripper(
+			// Reference for more: https://bogdanfinn.gitbook.io/open-source-oasis/tls-client/client-options
+			tlsclient.WithRandomTLSExtensionOrder(), // needed for Chrome 107+
+			tlsclient.WithClientProfile(profiles.Firefox_135),
+		)
+		client.Resty.SetTransport(tr)
+
+	*/
+	//client.Resty.SetRetryWaitTime(time.Microsecond * 1500)
 	if err == nil {
 		parser := protoparse.Parser{}
 		{
@@ -92,6 +102,7 @@ func setupClient(client *BiliClient, cookie string) {
 			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
 			ProtoType.Metadata = "Metadata"
 			ProtoType.Device = "Device"
+			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
 
 			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
 			fd := fds[0]
@@ -111,6 +122,7 @@ func setupClient(client *BiliClient, cookie string) {
 		client.Resty.SetProxy(proxyURL.String())
 	}
 	client.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"
+	client.Resty.SetCookieJar(nil)
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
 		if strings.Contains(request.URL, "bilibili.main") {
 			var buvid = getBUVID()
@@ -149,19 +161,26 @@ func setupClient(client *BiliClient, cookie string) {
 			request.SetBody(frame)
 
 		} else {
+
 			if client.Options.RandomUserAgent {
 				request.Header.Set("User-Agent", randomUserAgent())
 			} else {
 				request.Header.Set("User-Agent", client.UserAgent)
 			}
+			request.SetHeader("accept-language", "zh-CN,zh;q=0.9")
+			request.SetHeader("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+
 		}
 
 		var ref = ""
 		if strings.Contains(request.URL, "electron") {
 			ref = "client"
 		}
+		if !client.Options.NoCookie {
+			request.Header.Set("Cookie", client.Cookie)
+		}
 		request.Header.Set("Referer", "https://www.bilibili.com/"+ref)
-		//request.Header.Set("Cookie", client.Cookie)
+
 		return nil
 	})
 	client.Resty.OnAfterResponse(func(_ *resty.Client, response *resty.Response) error {
@@ -206,20 +225,11 @@ func setupClient(client *BiliClient, cookie string) {
 
 	}
 	client.Cookie = cookie
-	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
-		request.Header.Set("Cookie", client.Cookie)
-		/*
-			if client.Options.ResetConnection {
-				request.SetHeader("Connection", "closed")
-			}
-
-		*/
-		return nil
-	})
 	client.WBI = NewDefaultWbi()
 	client.WBI.WithRawCookies(cookie)
 	client.WBI.doInitWbi()
 	client.UID = client.selfUID()
+	client.Address = client.GetLocation().Address
 }
 func (client *BiliClient) CSRF() string {
 	split := strings.Split(client.Cookie, ";")
@@ -233,8 +243,11 @@ func (client *BiliClient) CSRF() string {
 	return jct
 }
 func (client BiliClient) selfUID() int64 {
-	res, _ := client.Resty.R().SetHeader("Cookie", client.Cookie).Get("https://api.bilibili.com/x/web-interface/nav")
+	res, err := client.Resty.R().SetHeader("Cookie", client.Cookie).Get("https://api.bilibili.com/x/web-interface/nav")
 
+	if err != nil {
+		fmt.Println(err)
+	}
 	var self = SelfInfo{}
 	json.Unmarshal(res.Body(), &self)
 	return self.Data.Mid

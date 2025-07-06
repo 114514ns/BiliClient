@@ -117,7 +117,6 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 	json.Unmarshal(res.Body(), &liveInfo)
 	ticker := time.NewTicker(45 * time.Second)
 	var dialer = &websocket.Dialer{
-		Proxy:            nil,
 		HandshakeTimeout: 45 * time.Second,
 	}
 	u := url.URL{Scheme: "wss", Host: liveInfo.Data.HostList[0].Host + ":2245", Path: "/sub"}
