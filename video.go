@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/go-resty/resty/v2"
 	"golang.org/x/net/html"
+	"io"
+	"log"
 	"net/url"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,8 +43,8 @@ type Video struct {
 	RawResponse string
 }
 
-func (v *Video) GetStream(client *BiliClient) []string {
-	return client.GetVideoStream(v.BV, 1)
+func (v *Video) GetStream(client *BiliClient) []Stream {
+	return client.GetVideoStream(v.BV, v.Cid)
 }
 
 func parseVideo() {
@@ -129,27 +134,129 @@ func (video *Video) getComments(cursor string, client *BiliClient, sort ...Reply
 	if client.UID == 0 {
 		return client.GetCommentRPC(video.Aid, cursor, CommentType.Video, sort...)
 	}
-	return client.GetComment(video.Aid, cursor, CommentType.Video)
+	return client.GetComment(video.Aid, cursor, CommentType.Video, 3)
 }
-func (client *BiliClient) GetVideoStream(bv string, part int) []string {
-	os.Mkdir("cache", 066)
-	var videolink = "https://bilibili.com/video/" + bv + "?p=" + strconv.Itoa(part)
-	vRes, _ := client.Resty.R().Get(videolink)
-	htmlContent := vRes.Body()
-	reader := bytes.NewReader(htmlContent)
-	root, _ := html.Parse(reader)
-	find := goquery.NewDocumentFromNode(root).Find("script")
-	var arr = make([]string, 0)
-	find.Each(func(i int, s *goquery.Selection) {
-		if strings.Contains(s.Text(), "m4s") && strings.Contains(s.Text(), "backup_url") {
-			var jsonStr = strings.Replace(s.Text(), "window.__playinfo__=", "", 1)
-			var v = Dash{}
-			json.Unmarshal([]byte(jsonStr), &v)
-			arr = append(arr, v.Data.Dash0.Audio[0].Link)
-			arr = append(arr, v.Data.Dash0.Video[0].Link)
+
+type Stream struct {
+	Width int
+	Video []string
+	Codec string
+	Audio string
+	BV    string
+	Cid   int
+}
+
+func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
+	var url0 = fmt.Sprintf("https://api.bilibili.com/x/player/wbi/playurl?bvid=%s&cid=%d&gaia_source=view-card&isGaiaAvoided=true&qn=32&fnval=4048&try_look=1", bv, cid)
+	parse, _ := url.Parse(url0)
+	query, _ := client.WBI.SignQuery(parse.Query(), time.Now())
+	res, err := client.Resty.R().Get("https://api.bilibili.com/x/player/wbi/playurl?" + query.Encode())
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var obj interface{}
+	json.Unmarshal(res.Body(), &obj)
+	var results []Stream
+	if getInt(obj, "code") == -404 {
+		return results
+	}
+	if getArray(obj, "data.durl") != nil {
+		var stream = Stream{}
+		stream.BV = bv
+		stream.Cid = cid
+		stream.Video = []string{getArray(getArray(obj, "data.durl")[0], "backup_url")[0].(string)}
+		results = append(results, stream)
+
+		return results
+	}
+	var audio = getString(getArray(obj, "data.dash.audio")[0], "baseUrl")
+
+	for _, i := range getArray(obj, "data.dash.video") {
+		var stream = Stream{}
+		stream.Width = getInt(i, "height")
+		var codec = getString(i, "codecs")
+		if strings.Contains(codec, "avc") {
+			stream.Codec = "h264"
 		}
-	})
-	return arr
+		if strings.Contains(codec, "hev") {
+			stream.Codec = "h265"
+		}
+		if strings.Contains(codec, "av01") {
+			stream.Codec = "av1"
+		}
+		for _, i2 := range getArray(i, "backupUrl") {
+			stream.Video = append(stream.Video, i2.(string))
+		}
+		stream.Video = append(stream.Video, audio)
+		stream.Audio = audio
+		stream.Cid = cid
+		stream.BV = bv
+
+		results = append(results, stream)
+	}
+
+	return results
+}
+
+func (client *BiliClient) DownloadVideo(stream Stream, dist string) {
+	var wg sync.WaitGroup
+	os.Mkdir("cache", 0755)
+
+	if stream.Audio == "" {
+		videoFile, _ := os.Create(dist + "/" + stream.BV + "-" + strconv.Itoa(stream.Cid) + ".mp4")
+		videoLink, _ := client.Resty.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").Get(stream.Video[0])
+		io.Copy(videoFile, videoLink.RawBody())
+		return
+	}
+	audioFile, _ := os.Create("cache/" + stream.BV + ".mp3")
+	var max1 = 3
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		audio, _ := client.Resty.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").AddRetryCondition(func(response *resty.Response, err error) bool {
+			if response.StatusCode() == 403 {
+				max1--
+				if max1 >= 0 {
+					return true
+				}
+				return false
+			}
+			return false
+		}).Get(stream.Audio)
+		os.WriteFile("cache/"+stream.BV+".mp3", audio.Body(), 066)
+		io.Copy(audioFile, audio.RawBody())
+	}()
+
+	defer audioFile.Close()
+
+	videoFile, _ := os.Create("cache/" + stream.BV + ".m4s")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for _, s := range stream.Video {
+			videoLink, err := client.Resty.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").Get(s)
+			io.Copy(videoFile, videoLink.RawBody())
+			if videoLink.StatusCode() == 200 {
+				break
+			} else {
+				fmt.Println(err)
+				time.Sleep(1 * time.Second)
+			}
+		}
+
+	}()
+
+	wg.Wait()
+
+	cmd := exec.Command("ffmpeg", "-i", videoFile.Name(), "-i", audioFile.Name(), "-vcodec", "copy", "-acodec", "copy", dist+"/"+stream.BV+"-"+strconv.Itoa(stream.Cid)+".mp4")
+	out, _ := cmd.CombinedOutput()
+	log.Println(string(out))
+	cmd.Run()
+
+	os.Remove("cache/" + stream.BV + ".mp4")
+	os.Remove("cache/" + stream.BV + ".mp3")
+	os.Remove("cache/" + stream.BV + ".m4s")
 }
 
 type SearchOption struct {

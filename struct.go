@@ -1,5 +1,7 @@
 package bili
 
+import "time"
+
 type GuardListResponse struct {
 	Data struct {
 		List []GuardResponseItem `json:"list"`
@@ -388,6 +390,8 @@ type LiveAction struct {
 	MedalLevel int8
 	GuardLevel int8
 	HonorLevel int8
+	Hash       string
+	Time       time.Time
 }
 type FrontLiveAction struct {
 	LiveAction
@@ -529,6 +533,9 @@ type CommentResponse struct {
 			SupportMode []int  `json:"support_mode"`
 			Name        string `json:"name"`
 		} `json:"cursor"`
+		Root struct {
+			Replies []ReplyInternalResponse `json:"replies"`
+		} `json:"root"`
 		Replies []ReplyInternalResponse `json:"replies"`
 		Upper   struct {
 			Mid int `json:"mid"`

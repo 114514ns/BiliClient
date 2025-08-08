@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/andybalholm/brotli"
 	"github.com/gorilla/websocket"
+	"hash/crc32"
 	"io"
 	"log"
 	"net/http"
@@ -98,14 +99,40 @@ func (client *BiliClient) SendMessage(msg string, room int, onResponse func(stri
 	}
 }
 
-func (client *BiliClient) GetHistory(room int, onResponse func(string)) {
+func (client *BiliClient) GetHistory(room int) []FrontLiveAction {
 
-	//var u = "https://api.live.bilibili.com/xlive/web-room/v1/dM/gethistory?roomid=" + strconv.Itoa(room)
-	//res, _ := client.Resty.R().Get(u)
+	var array []FrontLiveAction
+	var u = "https://api.live.bilibili.com/xlive/web-room/v1/dM/gethistory?roomid=" + strconv.Itoa(room)
+	res, _ := client.Resty.R().Get(u)
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	var process []interface{}
+	process = append(process, getArray(obj, "data.admin")...)
+	process = append(process, getArray(obj, "data.room")...)
+	for _, i := range process {
+		var action FrontLiveAction
+		action.ActionName = "msg"
+		action.FromId = getInt64(i, "uid")
+		action.FromName = getString(i, "nickname")
+		action.Extra = getString(i, "text")
+		action.Time, _ = time.Parse(time.DateTime, getString(i, "timeline"))
+		action.HonorLevel = int8(getInt(i, "wealth_level"))
+		action.GuardLevel = int8(getInt(i, "guard_level"))
+		action.Face = getString(i, "user.base.face")
+		action.Hash = fmt.Sprintf("%x", crc32.ChecksumIEEE([]byte(strconv.FormatInt(action.FromId, 10))))
+		medals := getObject(i, "user.medal", "object").m
+		if medals != nil {
+			action.MedalName = getString(medals, "name")
+			action.MedalColor = getString(medals, "v2_medal_color_start")
+			action.MedalLevel = int8(getInt(medals, "level"))
+		}
+		array = append(array, action)
+	}
+	return array
 
 }
 
-func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {
+func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), hashHandler func(hash string, name *string, id *int64)) {
 	if strings.Contains(room, "https") {
 		room = strings.Split(room, "/")[3:][0]
 	}
@@ -189,6 +216,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				front.Emoji = make(map[string]string)
 				if strings.Contains(obj, "DANMU_MSG") && !strings.Contains(obj, "RECALL_DANMU_MSG") { // 弹幕
 					action.ActionName = "msg"
+					action.Hash = text.Info[0].([]interface{})[7].(string)
 					action.FromName = text.Info[2].([]interface{})[1].(string)
 					e1, ok := text.Info[0].([]interface{})[13].(map[string]interface{})
 					if ok {
@@ -326,7 +354,15 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				front.LiveAction = action
 				if parsed {
 					if onMessage != nil {
-						onMessage(front)
+						if hashHandler != nil && front.ActionName == "msg" {
+							go func() {
+								hashHandler(front.Hash, &front.FromName, &front.FromId)
+								onMessage(front)
+							}()
+						} else {
+							onMessage(front)
+						}
+
 					}
 				}
 				if buffer.Len() < 16 {

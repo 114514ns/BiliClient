@@ -108,6 +108,7 @@ type JsonType struct {
 	f64   float64
 	array []interface{}
 	v     bool
+	m     map[string]interface{}
 }
 
 func getInt(obj interface{}, path string) int {
@@ -167,6 +168,9 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 				}
 				if t.Kind() == reflect.Bool {
 					st.v = value.(bool)
+				}
+				if t.Kind() == reflect.Map {
+					st.m = value.(map[string]interface{})
 				}
 			}
 

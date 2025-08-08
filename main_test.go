@@ -3,6 +3,8 @@ package bili
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jinzhu/copier"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -15,7 +17,12 @@ func getClient() *BiliClient {
 
 	var cookie = string(file)
 	//cookie = ""
-	client := NewClient(cookie, ClientOptions{})
+	client := NewClient(cookie, ClientOptions{
+		//HttpProxy: "[2401:b60:2a:c186:2871:8c58:763e:45ff]:8080",
+		ProxyUser: "fg27msTTyo",
+		ProxyPass: "PZ8u9Pr2oz",
+		NoCookie:  true,
+	})
 
 	return client
 
@@ -39,11 +46,12 @@ func TestDynamic(t *testing.T) {
 			array = append(array, dynamic)
 		}
 
+
 	*/
 
 	offset := ""
 	for {
-		dynamics, offset0 := client.GetDynamicsByUser(82044006, offset)
+		dynamics, offset0 := client.GetDynamicsByUser(3537115891632675, offset)
 		if "" == offset0 {
 			break
 		}
@@ -60,11 +68,21 @@ func TestDynamic(t *testing.T) {
 	PrintJSON(array)
 
 }
-
+func TestLiveHistory(t *testing.T) {
+	client := getClient()
+	client.GetHistory(23174842)
+}
 func TestLiveDanmaku(t *testing.T) {
 	//直播websocket消息
 	client := getClient()
-	client.TraceLive("https://live.bilibili.com/3237809", PrintLiveMsg, nil)
+	go func() {
+		for {
+			time.Sleep(15 * time.Second)
+			fmt.Printf("Miss %d Hit %d Rate %2f\n", miss, hit, (float64(hit))/(float64(miss+hit)))
+		}
+	}()
+	client.TraceLive("https://live.bilibili.com/21402309", PrintLiveMsg, HashHandler)
+
 }
 
 func TestVideoDetail(t *testing.T) {
@@ -92,15 +110,39 @@ func TestVideoComment(t *testing.T) {
 	var client = getClient()
 	var video = client.GetVideoByUser(504140200, 1, true)[0]
 	comments, _ := video.getComments("", client)
+
 	PrintJSON(comments)
 }
 
 func TestDynamicComment(t *testing.T) {
 	//获取动态评论内容
 	var client = getClient()
-	dyn, _ := client.GetDynamicsByUser(698029620)
-	comments, _ := dyn[0].GetComments("", client, REPLY_SORT_HOT)
-	PrintJSON(comments)
+	dyn, _ := client.GetDynamicsByUser(44903085)
+	var dst = []Comment{}
+	var off = ""
+	var count = 0
+	for {
+		var array, o = getClient().GetComment(dyn[0].CommentID, off, dyn[0].CommentType, 3)
+		off = o
+		time.Sleep(500 * time.Millisecond)
+		for _, comment := range array {
+			var tmp = Comment{}
+			copier.Copy(&tmp, comment)
+			dst = append(dst, tmp)
+		}
+
+		count = count + len(array)
+		fmt.Println(count)
+		if len(array) == 0 || off == "" {
+			break
+		}
+	}
+	PrintJSON(dst)
+	if dyn[0].Comments == len(dst) {
+		fmt.Println("Count Match!")
+	} else {
+		fmt.Println("Count Not Match!")
+	}
 }
 
 func TestGetLocation(t *testing.T) {
@@ -153,6 +195,10 @@ func TestAreaLivers(t *testing.T) {
 	var page = 1
 	for {
 		var list = getClient().GetAreaLiveByPage(9, page)
+		for _, liver := range list {
+			fmt.Println("" +
+				"\"" + strconv.Itoa(liver.Room) + "\",")
+		}
 		page++
 		total += len(list)
 		if len(list) == 0 {
@@ -160,12 +206,12 @@ func TestAreaLivers(t *testing.T) {
 		}
 		time.Sleep(time.Second * 2)
 	}
-	PrintJSON(total)
+	//PrintJSON(total)
 }
 
 func TestFansMedal(t *testing.T) {
 	//查询用户粉丝牌，需要登录
-	PrintJSON(getClient().GetFansMedal("36136895"))
+	PrintJSON(getClient().GetFansMedal("3461575518193817"))
 }
 
 func TestSearchVideo(t *testing.T) {
@@ -179,11 +225,25 @@ func TestSearchVideo(t *testing.T) {
 
 func TestVideoStream(t *testing.T) {
 	//获取视频流
-	array := getClient().GetVideoStream("BV1uN411C7zz", 1)
+	array := getClient().GetVideoStream("BV1eB7QzFEHB", 30291396850)
 	//audio := array[0]
-	video := array[1]
 	PrintJSON(array)
-	ffplay(video)
+}
+
+func TestDownloadVideo(t *testing.T) {
+	client := getClient()
+	array := client.GetVideoStream("BV1eB7QzFEHB", 30291396850)
+	PrintJSON(array[2])
+	client.DownloadVideo(array[2], "/mnt/share/Stream")
+
+}
+
+func TestSign(t *testing.T) {
+	var u = "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=544853"
+	var u0, _ = url.Parse(u)
+	var client = getClient()
+	query, _ := client.WBI.SignQuery(u0.Query(), time.Unix(1752042465, 0))
+	PrintJSON(query)
 }
 func PrintLiveMsg(action FrontLiveAction) {
 	var medalTag = ""

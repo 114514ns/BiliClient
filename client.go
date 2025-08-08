@@ -36,11 +36,13 @@ type BiliClient struct {
 	Address   string
 }
 type protoType0 struct {
-	Reply_MainListReply string
-	Reply_MainListReq   string
-	Metadata_FawkesReq  string
-	Metadata            string
-	Device              string
+	Reply_MainListReply   string
+	Reply_MainListReq     string
+	Metadata_FawkesReq    string
+	Metadata              string
+	Device                string
+	Reply_DetailListReq   string
+	Reply_DetailListReply string
 }
 
 var ProtoType protoType0
@@ -82,7 +84,7 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 func setupClient(client *BiliClient, cookie string) {
 
 	_, err := os.Open("bilibili")
-	//client.Resty.SetRetryCount(15)
+	client.Resty.SetRetryCount(15)
 	/*
 		tr, err := srt.NewSpoofedRoundTripper(
 			// Reference for more: https://bogdanfinn.gitbook.io/open-source-oasis/tls-client/client-options
@@ -103,11 +105,16 @@ func setupClient(client *BiliClient, cookie string) {
 			ProtoType.Metadata = "Metadata"
 			ProtoType.Device = "Device"
 			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
+			ProtoType.Reply_DetailListReq = "Reply.DetailListReq"
+			ProtoType.Reply_DetailListReply = "Reply.DetailListReply"
 
 			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
 			fd := fds[0]
 			protoMap[ProtoType.Reply_MainListReply] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReply")
 			protoMap[ProtoType.Reply_MainListReq] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReq")
+
+			protoMap[ProtoType.Reply_DetailListReq] = fd.FindMessage("bilibili.main.community.reply.v1.DetailListReq")
+			protoMap[ProtoType.Reply_DetailListReply] = fd.FindMessage("bilibili.main.community.reply.v1.DetailListReply")
 
 			fds, _ = parser.ParseFiles("bilibili/metadata/fawkes.proto")
 			protoMap[ProtoType.Metadata_FawkesReq] = fds[0].FindMessage("bilibili.metadata.fawkes.FawkesReq")
@@ -199,6 +206,9 @@ func setupClient(client *BiliClient, cookie string) {
 			if strings.Contains(url0, "Reply/MainList") {
 
 				typo = ProtoType.Reply_MainListReply
+			}
+			if strings.Contains(url0, "Reply/DetailList") {
+				typo = ProtoType.Reply_DetailListReply
 			}
 			msg := dynamic.NewMessage(protoMap[typo])
 			err = msg.Unmarshal(dist)

@@ -36,6 +36,7 @@ func (client BiliClient) GetVideo(bv string){} (result []Video) //解析视频�
 func (client BiliClient) GetVideoByUser(mid int64, page int, byHot bool){} (result []Video) //获取用户的稿件
 func (client BiliClient) GetVideoStream(bv string, part int) []string {} //获取视频流
 func (client *BiliClient) SearchVideo(opinion SearchOption) []Video {} //搜索视频
+func (client *BiliClient) DownloadVideo(stream Stream, dist string) {} //下载视频
 ~~~
 
 ### 空间相关
