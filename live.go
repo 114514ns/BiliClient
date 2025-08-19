@@ -148,11 +148,14 @@ func (client BiliClient) GetOnline(room string, liver string) []LiveUser {
 	}
 	return arr
 }
-func (client BiliClient) GetLiveStream(room string) string {
+func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 
 	now := time.Now()
+	if len(onlyAudio) == 0 {
+		onlyAudio = append(onlyAudio, false)
+	}
 
-	uri, _ := url.Parse("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?qn=10000&protocol=0,1&format=0,1,2&codec=0,1,2&web_location=444.8&room_id=" + room)
+	uri, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?only_audio=%d&qn=25000&protocol=0,1&format=0,1,2&codec=0,1,2&web_location=444.8&room_id="+strconv.Itoa(room), btoi(onlyAudio[0])))
 	signed, _ := client.WBI.SignQuery(uri.Query(), now)
 	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?" + signed.Encode())
 	var s = LiveStreamResponse{}

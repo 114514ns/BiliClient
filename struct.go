@@ -537,7 +537,11 @@ type CommentResponse struct {
 			Replies []ReplyInternalResponse `json:"replies"`
 		} `json:"root"`
 		Replies []ReplyInternalResponse `json:"replies"`
-		Upper   struct {
+		Top     struct {
+			Upper ReplyInternalResponse `json:"upper"`
+		} `json:"top"`
+		//TopReplies []ReplyInternalResponse `json:"top_replies"`
+		Upper struct {
 			Mid int `json:"mid"`
 		} `json:"upper"`
 		Note             int         `json:"note"`

@@ -185,6 +185,9 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 	}
 	return st
 }
+func btoi(b bool) int {
+	return int(map[bool]int{true: 1, false: 0}[b])
+}
 
 // from https://socialsisteryi.github.io/bilibili-API-collect/docs/misc/bvid_desc.html#golang
 var (

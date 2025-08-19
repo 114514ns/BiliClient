@@ -8,7 +8,6 @@ import (
 	"github.com/go-resty/resty/v2"
 	"golang.org/x/net/html"
 	"io"
-	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -199,13 +198,22 @@ func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
 	return results
 }
 
-func (client *BiliClient) DownloadVideo(stream Stream, dist string) {
+func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...bool) {
 	var wg sync.WaitGroup
 	os.Mkdir("cache", 0755)
+	if len(noProxy) == 0 {
+		noProxy = append(noProxy, false)
+	}
+	var r = &resty.Client{}
+	if noProxy[0] {
+		r = resty.New()
+	} else {
+		r = client.Resty
+	}
 
 	if stream.Audio == "" {
 		videoFile, _ := os.Create(dist + "/" + stream.BV + "-" + strconv.Itoa(stream.Cid) + ".mp4")
-		videoLink, _ := client.Resty.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").Get(stream.Video[0])
+		videoLink, _ := r.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").Get(stream.Video[0])
 		io.Copy(videoFile, videoLink.RawBody())
 		return
 	}
@@ -214,7 +222,8 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		audio, _ := client.Resty.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").AddRetryCondition(func(response *resty.Response, err error) bool {
+		stream.Audio = strings.Replace(stream.Audio, "mirrorcosov", "mirroraliov", 1)
+		audio, _ := r.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").AddRetryCondition(func(response *resty.Response, err error) bool {
 			if response.StatusCode() == 403 {
 				max1--
 				if max1 >= 0 {
@@ -235,7 +244,8 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string) {
 	go func() {
 		defer wg.Done()
 		for _, s := range stream.Video {
-			videoLink, err := client.Resty.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").Get(s)
+			s = strings.Replace(s, "mirrorcosov", "mirroraliov", 1)
+			videoLink, err := r.R().SetDoNotParseResponse(true).SetHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.3").SetHeader("Referer", "https://www.bilibili.com").Get(s)
 			io.Copy(videoFile, videoLink.RawBody())
 			if videoLink.StatusCode() == 200 {
 				break
@@ -250,8 +260,8 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string) {
 	wg.Wait()
 
 	cmd := exec.Command("ffmpeg", "-i", videoFile.Name(), "-i", audioFile.Name(), "-vcodec", "copy", "-acodec", "copy", dist+"/"+stream.BV+"-"+strconv.Itoa(stream.Cid)+".mp4")
-	out, _ := cmd.CombinedOutput()
-	log.Println(string(out))
+	//out, _ := cmd.CombinedOutput()
+	//log.Println(string(out))
 	cmd.Run()
 
 	os.Remove("cache/" + stream.BV + ".mp4")

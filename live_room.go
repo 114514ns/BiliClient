@@ -1,6 +1,7 @@
 package bili
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -385,6 +387,45 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 			if err != nil {
 				log.Println("write:", err)
 				return
+			}
+		}
+	}
+}
+
+func (client *BiliClient) TraceStream(room int, dst0 string, onlyAudio ...bool) {
+	if len(onlyAudio) == 0 {
+		onlyAudio = append(onlyAudio, false)
+	}
+	var stream = client.GetLiveStream(room, onlyAudio[0])
+	var ticker = time.NewTicker(time.Second * 2)
+	var dst, _ = os.Create(dst0)
+	writer := bufio.NewWriter(dst)
+	var m = make(map[string]bool)
+	//var m = make(map[string]bool)
+	var u, _ = url.Parse(stream)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			str, _ := client.Resty.R().Get(stream)
+			for _, s := range strings.Split(str.String(), "\n") {
+				if !strings.HasPrefix(s, "#") {
+					_, ok := m[s]
+					if !ok {
+						path := u.Path
+						split := strings.Split(path, "/")
+						var d = ""
+						for i, s2 := range split {
+							if i != len(split)-1 {
+								d += s2 + "/"
+							}
+						}
+						r, _ := client.Resty.R().Get("https://" + u.Host + d + s)
+						writer.Write(r.Body())
+						writer.Flush()
+						m[s] = true
+					}
+				}
 			}
 		}
 	}

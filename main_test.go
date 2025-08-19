@@ -21,7 +21,7 @@ func getClient() *BiliClient {
 		//HttpProxy: "[2401:b60:2a:c186:2871:8c58:763e:45ff]:8080",
 		ProxyUser: "fg27msTTyo",
 		ProxyPass: "PZ8u9Pr2oz",
-		NoCookie:  true,
+		//NoCookie:  true,
 	})
 
 	return client
@@ -51,17 +51,17 @@ func TestDynamic(t *testing.T) {
 
 	offset := ""
 	for {
-		dynamics, offset0 := client.GetDynamicsByUser(3537115891632675, offset)
-		if "" == offset0 {
-			break
-		}
+		dynamics, offset0 := client.GetDynamicsByUser(1352996769, offset)
+
 		if offset0 != "-1" {
 			offset = offset0
 			for _, dynamic := range dynamics {
 				array = append(array, dynamic)
 			}
 		}
-
+		if "" == offset0 {
+			break
+		}
 		fmt.Println(len(array))
 		time.Sleep(1 * time.Second)
 	}
@@ -117,7 +117,7 @@ func TestVideoComment(t *testing.T) {
 func TestDynamicComment(t *testing.T) {
 	//获取动态评论内容
 	var client = getClient()
-	dyn, _ := client.GetDynamicsByUser(44903085)
+	dyn, _ := client.GetDynamicsByUser(232392815)
 	var dst = []Comment{}
 	var off = ""
 	var count = 0
@@ -137,7 +137,7 @@ func TestDynamicComment(t *testing.T) {
 			break
 		}
 	}
-	PrintJSON(dst)
+	//PrintJSON(dst)
 	if dyn[0].Comments == len(dst) {
 		fmt.Println("Count Match!")
 	} else {
@@ -184,11 +184,14 @@ func TestGetFollowing(t *testing.T) {
 func TestLiveStream(t *testing.T) {
 	//直播流
 	var client = getClient()
-	var stream = client.GetLiveStream(strconv.Itoa(client.GetAreaLiveByPage(9, 1)[0].Room))
-	stream = client.GetLiveStream("26854650")
+	//var stream = client.GetLiveStream(strconv.Itoa(client.GetAreaLiveByPage(9, 1)[0].Room))
+	var stream = client.GetLiveStream(30931147)
 	fmt.Println(stream)
 }
-
+func TestTraceLiveStream(t *testing.T) {
+	var client = getClient()
+	client.TraceStream(21399314, "dst.mp3", false)
+}
 func TestAreaLivers(t *testing.T) {
 	//获取分区内开播的直播间
 	var total = 0
@@ -225,7 +228,7 @@ func TestSearchVideo(t *testing.T) {
 
 func TestVideoStream(t *testing.T) {
 	//获取视频流
-	array := getClient().GetVideoStream("BV1eB7QzFEHB", 30291396850)
+	array := getClient().GetVideoStream("BV1TMYqzEEa1", 31728668205)
 	//audio := array[0]
 	PrintJSON(array)
 }
