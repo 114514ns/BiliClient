@@ -157,7 +157,9 @@ func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
 	var obj interface{}
 	json.Unmarshal(res.Body(), &obj)
 	var results []Stream
-	if getInt(obj, "code") == -404 {
+	var code = getInt(obj, "code")
+	if code == -404 || code == 87008 {
+		fmt.Println(bv)
 		return results
 	}
 	if getArray(obj, "data.durl") != nil {
@@ -170,7 +172,6 @@ func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
 		return results
 	}
 	var audio = getString(getArray(obj, "data.dash.audio")[0], "baseUrl")
-
 	for _, i := range getArray(obj, "data.dash.video") {
 		var stream = Stream{}
 		stream.Width = getInt(i, "height")

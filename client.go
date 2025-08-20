@@ -24,6 +24,7 @@ type ClientOptions struct {
 	RandomUserAgent bool
 	ResetConnection bool
 	NoCookie        bool
+	Retry           int
 }
 
 type BiliClient struct {
@@ -84,7 +85,12 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 func setupClient(client *BiliClient, cookie string) {
 
 	_, err := os.Open("bilibili")
-	client.Resty.SetRetryCount(15)
+	if client.Options.Retry == 0 {
+		client.Resty.SetRetryCount(3)
+	} else {
+		client.Resty.SetRetryCount(client.Options.Retry)
+	}
+
 	/*
 		tr, err := srt.NewSpoofedRoundTripper(
 			// Reference for more: https://bogdanfinn.gitbook.io/open-source-oasis/tls-client/client-options
