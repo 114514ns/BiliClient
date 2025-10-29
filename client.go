@@ -3,18 +3,22 @@ package bili
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"log"
+	"math/rand"
+	"net/url"
+	"os"
+	"runtime/debug"
+	"strings"
+
 	json "github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/jhump/protoreflect/dynamic"
-	"io"
-	"math/rand"
-	"net/url"
-	"os"
-	"strings"
 )
 
 type ClientOptions struct {
@@ -25,6 +29,9 @@ type ClientOptions struct {
 	ResetConnection bool
 	NoCookie        bool
 	Retry           int
+	AccessKey       string
+	PrintErrorURL   bool
+	PrintErrorStack bool
 }
 
 type BiliClient struct {
@@ -44,6 +51,16 @@ type protoType0 struct {
 	Device                string
 	Reply_DetailListReq   string
 	Reply_DetailListReply string
+	ReactionListReq       string
+	ReactionListReply     string
+	LikeListReq           string
+	LikeListReply         string
+	DynDetailsReq         string
+	DynDetailsReply       string
+	DynLightReq           string
+	DynLightReply         string
+	OpusDetailReq         string
+	OpusDetailReply       string
 }
 
 var ProtoType protoType0
@@ -83,36 +100,37 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 	return client
 }
 func setupClient(client *BiliClient, cookie string) {
-
 	_, err := os.Open("bilibili")
 	if client.Options.Retry == 0 {
 		client.Resty.SetRetryCount(3)
 	} else {
 		client.Resty.SetRetryCount(client.Options.Retry)
 	}
-
-	/*
-		tr, err := srt.NewSpoofedRoundTripper(
-			// Reference for more: https://bogdanfinn.gitbook.io/open-source-oasis/tls-client/client-options
-			tlsclient.WithRandomTLSExtensionOrder(), // needed for Chrome 107+
-			tlsclient.WithClientProfile(profiles.Firefox_135),
-		)
-		client.Resty.SetTransport(tr)
-
-	*/
-	//client.Resty.SetRetryWaitTime(time.Microsecond * 1500)
 	if err == nil {
 		parser := protoparse.Parser{}
 		{
 
 			ProtoType.Reply_MainListReq = "Reply.MainListReq"
 			ProtoType.Reply_MainListReply = "Reply.MainListReply"
+
+			ProtoType.ReactionListReq = "Reply.ReactionListReq"
+			ProtoType.ReactionListReply = "Reply.ReactionListReply"
+
 			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
 			ProtoType.Metadata = "Metadata"
 			ProtoType.Device = "Device"
 			ProtoType.Metadata_FawkesReq = "Metadata.FawkesReq"
 			ProtoType.Reply_DetailListReq = "Reply.DetailListReq"
 			ProtoType.Reply_DetailListReply = "Reply.DetailListReply"
+
+			ProtoType.LikeListReq = "Reply.LikeListReq"
+			ProtoType.LikeListReply = "Reply.LikeListReply"
+
+			ProtoType.DynDetailsReq = "Reply.DynDetailsReq"
+			ProtoType.DynDetailsReply = "Reply.DynDetailsReply"
+
+			ProtoType.OpusDetailReq = "Opus.OpusDetailReq"
+			ProtoType.OpusDetailReply = "Opus.OpusDetailReply"
 
 			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
 			fd := fds[0]
@@ -128,6 +146,19 @@ func setupClient(client *BiliClient, cookie string) {
 			protoMap[ProtoType.Metadata] = fds[0].FindMessage("bilibili.metadata.Metadata")
 			fds, _ = parser.ParseFiles("bilibili/metadata/device.proto")
 			protoMap[ProtoType.Device] = fds[0].FindMessage("bilibili.metadata.device.Device")
+
+			fds, _ = parser.ParseFiles("bilibili/app/dynamic/v2.proto")
+			protoMap[ProtoType.ReactionListReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.ReactionListReq")
+			protoMap[ProtoType.ReactionListReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.ReactionListReply")
+
+			protoMap[ProtoType.LikeListReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.LikeListReq")
+			protoMap[ProtoType.LikeListReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.LikeListReply")
+
+			protoMap[ProtoType.DynDetailsReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynDetailsReq")
+			protoMap[ProtoType.DynDetailsReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynDetailsReply")
+
+			protoMap[ProtoType.OpusDetailReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReq")
+			protoMap[ProtoType.OpusDetailReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReply")
 		}
 	}
 	if client.Options.HttpProxy != "" {
@@ -137,7 +168,7 @@ func setupClient(client *BiliClient, cookie string) {
 	client.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"
 	client.Resty.SetCookieJar(nil)
 	client.Resty.OnBeforeRequest(func(_ *resty.Client, request *resty.Request) error {
-		if strings.Contains(request.URL, "bilibili.main") {
+		if strings.Contains(request.URL, "app.bilibili.com") && !strings.Contains(request.URL, "/x/") {
 			var buvid = getBUVID()
 			var fp = getFP()
 			//var spilt = strings.Split(request.URL, "/")
@@ -150,7 +181,7 @@ func setupClient(client *BiliClient, cookie string) {
 			request.SetHeader("grpc-accept-encoding", "gzip")
 			request.SetHeader("env", "prod")
 			request.SetHeader("app-key", "android")
-			request.SetHeader("user-agent", "")
+			request.SetHeader("user-agent", "Dalvik/2.1.0 (Linux; U; Android 12; CET-AL00 Build/2da4f5d.0) 8.50.0 os/android model/CET-AL00 mobi_app/android build/8500200 channel/alifenfa innerVer/8500210 osVer/12 network/2")
 			request.SetHeader("x-bili-aurora-eid", getAurora(uint64(client.UID)))
 			request.SetHeader("x-bili-mid", toString(client.UID))
 			request.SetHeader("x-bili-aurora-zone", "")
@@ -171,12 +202,15 @@ func setupClient(client *BiliClient, cookie string) {
 			frame[0] = 0x00
 			binary.BigEndian.PutUint32(frame[1:5], uint32(len(payload)))
 			copy(frame[5:], payload)
+			fmt.Println(base64.StdEncoding.EncodeToString(frame))
 			request.SetBody(frame)
 
 		} else {
 
 			if client.Options.RandomUserAgent {
-				request.Header.Set("User-Agent", randomUserAgent())
+				if request.Header.Get("User-Agent") == "" {
+					request.Header.Set("User-Agent", randomUserAgent())
+				}
 			} else {
 				request.Header.Set("User-Agent", client.UserAgent)
 			}
@@ -198,7 +232,7 @@ func setupClient(client *BiliClient, cookie string) {
 	})
 	client.Resty.OnAfterResponse(func(_ *resty.Client, response *resty.Response) error {
 		url0 := response.Request.URL
-		if strings.Contains(url0, "bilibili.main") {
+		if strings.Contains(url0, "/bilibili.") {
 			var raw = response.Body()[5:]
 			var dist []byte
 			if response.Body()[0:][0] == 0x01 {
@@ -216,6 +250,16 @@ func setupClient(client *BiliClient, cookie string) {
 			if strings.Contains(url0, "Reply/DetailList") {
 				typo = ProtoType.Reply_DetailListReply
 			}
+
+			if strings.Contains(url0, "Dynamic/ReactionList") {
+				typo = ProtoType.ReactionListReply
+			}
+			if strings.Contains(url0, "Dynamic/LikeList") {
+				typo = ProtoType.LikeListReply
+			}
+			if strings.Contains(url0, "Dynamic/DynDetails") {
+				typo = ProtoType.DynDetailsReply
+			}
 			msg := dynamic.NewMessage(protoMap[typo])
 			err = msg.Unmarshal(dist)
 			if err != nil {
@@ -227,6 +271,29 @@ func setupClient(client *BiliClient, cookie string) {
 			}
 
 			response.SetBody(jsonBytes)
+		} else {
+			var obj map[string]interface{}
+			err := json.Unmarshal(response.Body(), &obj)
+			if err == nil {
+				v, ok := obj["code"]
+				if ok {
+					if v.(float64) != 0 {
+						if client.Options.PrintErrorURL {
+							log.Println(response.Request.URL)
+							log.Println(response.String())
+						}
+						if client.Options.PrintErrorStack {
+							debug.PrintStack()
+						}
+					}
+				}
+			} else {
+				if strings.Contains(url0, "<html>") {
+					log.Println(response.Request.URL)
+					debug.PrintStack()
+				}
+			}
+
 		}
 		return nil
 	})

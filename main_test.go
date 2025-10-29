@@ -3,24 +3,28 @@ package bili
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/jinzhu/copier"
 	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/jinzhu/copier"
 )
 
 func getClient() *BiliClient {
 	file, _ := os.ReadFile("cookie.txt")
 
 	var cookie = string(file)
+
+	file, _ = os.ReadFile("access_key.txt")
 	//cookie = ""
 	client := NewClient(cookie, ClientOptions{
-		//HttpProxy: "[2401:b60:2a:c186:2871:8c58:763e:45ff]:8080",
+		//HttpProxy: "[2400:c620:2e:2c99::1]:10086",
 		ProxyUser: "fg27msTTyo",
 		ProxyPass: "PZ8u9Pr2oz",
+		AccessKey: string(file),
 		//NoCookie:  true,
 	})
 
@@ -51,7 +55,7 @@ func TestDynamic(t *testing.T) {
 
 	offset := ""
 	for {
-		dynamics, offset0 := client.GetDynamicsByUser(1352996769, offset)
+		dynamics, offset0 := client.GetDynamicsByUser(1523623, offset)
 
 		if offset0 != "-1" {
 			offset = offset0
@@ -63,9 +67,49 @@ func TestDynamic(t *testing.T) {
 			break
 		}
 		fmt.Println(len(array))
-		time.Sleep(1 * time.Second)
+		time.Sleep(350 * time.Microsecond)
 	}
 	PrintJSON(array)
+
+}
+
+func TestBatchGetDynamics(t *testing.T) {
+	client := getClient()
+	client.GetDynamicLight()
+	var ids = make([]int64, 0)
+	ids = append(ids, 943559857729962032)
+	client.BatchGetDynamics(ids)
+}
+func TestDynamicReaction(t *testing.T) {
+	var client = getClient()
+	var page = 1
+	var results []ActionItem
+	for {
+		te := client.GetReactionList(1121658321759109129, page)
+		page++
+		results = append(results, te...)
+		if len(te) == 0 {
+			break
+		}
+		time.Sleep(350 * time.Microsecond)
+	}
+
+}
+func TestDynamicLikeListRPC(t *testing.T) {
+	var client = getClient()
+	var page = 1
+	var results []ActionItem
+	var offset int64 = 0
+	for {
+		array, more := client.GetLikeListRPC(1101369725119627286, 8, 970285943, page, offset)
+		page++
+		offset = array[len(array)-1].UID
+		results = append(results, array...)
+		if !more {
+			break
+		}
+		time.Sleep(100 * time.Microsecond)
+	}
 
 }
 func TestLiveHistory(t *testing.T) {
@@ -88,7 +132,10 @@ func TestLiveDanmaku(t *testing.T) {
 func TestVideoDetail(t *testing.T) {
 	//视频详细信息
 	var client = getClient()
-	var video = client.GetVideo("BV1qb411i73")
+	var video = client.GetVideo("BV1ypJPzQEj4")
+	for i, r := range video[0].ParentTitle {
+		fmt.Printf("index=%d, rune=%c, unicode=%U, int=%d\n", i, r, r, r)
+	}
 	PrintJSON(video)
 }
 
@@ -278,6 +325,11 @@ func PrintLiveMsg(action FrontLiveAction) {
 	if action.ActionName == "enter" {
 		//fmt.Printf("[%s] 进入直播间\n", action.FromName)
 	}
+}
+
+func TestBiliClient_GetUserLoaction(t *testing.T) {
+	PrintJSON(getClient().GetUserLocation(3546861088541561))
+
 }
 
 func PrintJSON(obj interface{}) {

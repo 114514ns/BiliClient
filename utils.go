@@ -5,9 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
-	"github.com/jhump/protoreflect/dynamic"
-	"golang.org/x/net/html"
 	"math"
 	"math/rand"
 	url2 "net/url"
@@ -17,6 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/jhump/protoreflect/dynamic"
+	"golang.org/x/net/html"
 )
 
 func FormatDuration(seconds int) string {

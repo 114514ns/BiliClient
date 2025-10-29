@@ -2,14 +2,15 @@ package bili
 
 import (
 	"fmt"
-	json "github.com/bytedance/sonic"
-	"github.com/jhump/protoreflect/dynamic"
 	"html"
 	url2 "net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	json "github.com/bytedance/sonic"
+	"github.com/jhump/protoreflect/dynamic"
 )
 
 type CommentType0 struct {
@@ -99,6 +100,14 @@ type User struct {
 	RawResponse string
 }
 
+type ActionItem struct {
+	UName    string
+	UID      int64
+	TargetID int64
+	OID      int64
+}
+
+// 获取用户收藏夹列表
 func (client *BiliClient) GetCollection(user string, page int) map[string]string {
 	var url = fmt.Sprintf("https://api.bilibili.com/x/v3/fav/folder/created/list?ps=50&pn=%d&up_mid=%s", page, user)
 	res, _ := client.Resty.R().Get(url)
@@ -110,6 +119,8 @@ func (client *BiliClient) GetCollection(user string, page int) map[string]string
 	}
 	return m
 }
+
+// 获取用户关注
 func (client *BiliClient) GetFollowing(user string, delay int) map[string]string {
 	var m = make(map[string]string)
 	page := 1
@@ -126,6 +137,8 @@ func (client *BiliClient) GetFollowing(user string, delay int) map[string]string
 	}
 	return m
 }
+
+// 分页获取用户关注
 func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]string {
 	resp, err := client.Resty.R().Get("https://line3-h5-mobile-api.biligame.com/game/center/h5/user/relationship/following_list?vmid=" + string(user) + "&ps=50&pn=" + strconv.Itoa(page))
 	if err != nil {
@@ -141,6 +154,7 @@ func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]s
 	return m
 }
 
+// 获取用户动态
 func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dynamic, string) {
 	offset := ""
 	if len(offset0) != 0 {
@@ -350,20 +364,7 @@ const (
 	REPLY_SORT_HOT  = "MAIN_LIST_HOT"
 )
 
-func UniqueByField[T any, K comparable](items []T, keyFunc func(T) K) []T {
-	seen := make(map[K]struct{})
-	var result []T
-
-	for _, item := range items {
-		key := keyFunc(item)
-		if _, exists := seen[key]; !exists {
-			seen[key] = struct{}{}
-			result = append(result, item)
-		}
-	}
-
-	return result
-}
+// 获取评论
 func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sort ...ReplySort) ([]Comment, string) {
 
 	var jsonStr = `
@@ -435,6 +436,8 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sor
 
 	//client.Resty.R().SetBody()
 }
+
+// 获取二级评论
 func (client *BiliClient) GetReplyRPC(oid int64, root int64, type0 int, sort ...ReplySort) ([]Comment, string) {
 	var jsonStr = `
 		{
@@ -460,6 +463,8 @@ func (client *BiliClient) GetReplyRPC(oid int64, root int64, type0 int, sort ...
 	fmt.Println(res.String())
 	return nil, ""
 }
+
+// 获取二级评论
 func (client *BiliClient) GetReply(oid int64, root int64, cursor string, type0 int) ([]Comment, string) {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/detail?oid=%d&type=%d&root=%d&web_location=333.1365&pagination_str=%s", oid, type0, root, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
 	obj := CommentResponse{}
@@ -490,9 +495,13 @@ func (client *BiliClient) GetReply(oid int64, root int64, cursor string, type0 i
 	return list, off
 
 }
+
+// 获取二级评论
 func (comment *Comment) GetReply(offset string, client *BiliClient) ([]Comment, string) {
 	return client.GetReply(comment.OID, comment.ReplyID, offset, comment.Type)
 }
+
+// 获取评论
 func (archive *Dynamic) GetComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Comment, string) {
 	t := CommentType.Dynamic
 	if archive.BV != "" {
@@ -517,6 +526,8 @@ func (archive *Dynamic) GetComments(cursor string, client *BiliClient, sort ...R
 	}
 
 }
+
+// 设置自己主页公告
 func (client *BiliClient) SetAnnouce(content string) {
 	split := strings.Split(client.Cookie, ";")
 	jct := ""
@@ -532,6 +543,7 @@ func (client *BiliClient) SetAnnouce(content string) {
 
 }
 
+// 粉丝牌牌
 func (client *BiliClient) GetFansMedal(id string) []Medal {
 	u := "https://api.live.bilibili.com/xlive/web-ucenter/user/MedalWall?target_id=" + id
 	res, _ := client.Resty.R().Get(u)
@@ -551,6 +563,8 @@ func (client *BiliClient) GetFansMedal(id string) []Medal {
 	}
 	return list
 }
+
+// 获取粉丝/关注的数量
 func (client *BiliClient) GetStats(uid int64) map[string]int {
 	var m = make(map[string]int)
 	u := fmt.Sprintf("https://api.bilibili.com/x/space/upstat?mid=%d", uid)
@@ -565,6 +579,8 @@ func (client *BiliClient) GetStats(uid int64) map[string]int {
 	return m
 
 }
+
+// 获取比较详细的用户信息
 func (client *BiliClient) GetUser(id int64) (User, int) {
 	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/web-interface/card?mid=" + toString(id))
 	var obj interface{}
@@ -591,6 +607,7 @@ func (client *BiliClient) GetUser(id int64) (User, int) {
 	return user, 1
 }
 
+// 批量获取头像
 func (client *BiliClient) BatchGetFace(id []int64) []FaceMap {
 
 	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[["
@@ -620,6 +637,8 @@ func (client *BiliClient) BatchGetFace(id []int64) []FaceMap {
 	}
 	return result
 }
+
+// 获取头像
 func (client *BiliClient) GetFace(id int64) string {
 	var s = "https://api.live.bilibili.com/xlive/fuxi-interface/UserService/getUserInfo?_ts_rpc_args_=[[" + strconv.FormatInt(id, 10)
 	s = s + `],true,""]`
@@ -639,6 +658,8 @@ func (client *BiliClient) GetFace(id int64) string {
 
 	return "https:" + r.TsRpcReturn.Data[strconv.FormatInt(id, 10)].Face
 }
+
+// 解析专栏
 func (client *BiliClient) GetArticle(cv int64, callback func(string), rawResponse func(string2 string)) Article {
 
 	//start := time.Now()
@@ -693,6 +714,103 @@ func (client *BiliClient) GetArticle(cv int64, callback func(string), rawRespons
 
 }
 
+// 需要登录
+func (client *BiliClient) GetReactionList(oid int64, page int) []ActionItem {
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/detail/reaction?id=%d&offset={\"page\":%d}", oid, page))
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	var results []ActionItem
+	for _, i := range getArray(obj, "data.items") {
+		var item ActionItem
+		item.OID = oid
+		item.UName = getString(i, "name")
+		item.UID = toInt64(getString(i, "mid"))
+		results = append(results, item)
+	}
+	if len(results) == 0 {
+		time.Now()
+	}
+	return results
+}
+
+func (client *BiliClient) GetDynamicLight() {
+	var jsonStr = `
+		{
+		    "fake_uid": 451537183,
+			"page":1
+			
+		}
+		`
+	msg := dynamic.NewMessage(protoMap[ProtoType.DynLightReq])
+	err := msg.UnmarshalJSON([]byte(jsonStr))
+	if err != nil {
+		fmt.Println(err)
+	}
+	payload, _ := msg.Marshal()
+	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Dynamic/DynLight")
+	var obj map[string]interface{}
+	json.Unmarshal(response.Body(), &obj)
+	fmt.Println(obj)
+}
+
+// 点赞列表
+// 2是普通图文类型，8是视频类型
+// 不支持DYNAMIC_TEXT,
+func (client *BiliClient) GetLikeListRPC(oid int64, typo int, rid int64, page int, offset int64) ([]ActionItem, bool) {
+	var results []ActionItem
+	var jsonStr = `
+		{
+		    "dynamic_id": %d,
+		    "dyn_type": %d,
+		    "rid": %d,
+			"page": %d
+			
+		}
+		`
+
+	var req = fmt.Sprintf(jsonStr, oid, typo, rid, page)
+	msg := dynamic.NewMessage(protoMap[ProtoType.LikeListReq])
+	err := msg.UnmarshalJSON([]byte(req))
+	if err != nil {
+		fmt.Println(err)
+	}
+	payload, _ := msg.Marshal()
+	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Dynamic/LikeList")
+	var obj map[string]interface{}
+	json.Unmarshal(response.Body(), &obj)
+	for _, i := range getArray(obj, "list") {
+		var o ActionItem
+		o.UID = toInt64(getString(i, "mid"))
+		o.OID = oid
+		o.UName = getString(i, "author.name")
+		results = append(results, o)
+	}
+	return results, getBool(obj, "hasMore")
+}
+
+func (client *BiliClient) BatchGetDynamics(ids []int64) {
+	var jsonStr = `
+		{
+		    "dynamic_ids": "943559857729962032"
+		}
+		`
+
+	//var req = fmt.Sprintf(jsonStr, ids[0])
+	msg := dynamic.NewMessage(protoMap[ProtoType.DynDetailsReq])
+	err := msg.UnmarshalJSON([]byte(jsonStr))
+	if err != nil {
+		fmt.Println(err)
+	}
+	payload, _ := msg.Marshal()
+	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Dynamic/DynDetails")
+	var obj map[string]interface{}
+	json.Unmarshal(response.Body(), &obj)
+	for _, _ = range getArray(obj, "list") {
+
+	}
+}
+
+// 获取当前ip
 func (client *BiliClient) GetLocation(ip ...string) Location {
 	u := "https://api.bilibili.com/x/web-interface/zone"
 	if len(ip) != 0 {
@@ -710,4 +828,19 @@ func (client *BiliClient) GetLocation(ip ...string) Location {
 	result.Describe = getString(obj, "data.country") + getString(obj, "data.province") + getString(obj, "data.city") + getString(obj, "data.isp")
 
 	return result
+}
+
+func (client *BiliClient) GetUserLocation(uid int64) string {
+	res, _ := client.Resty.R().Get("https://api.bilibili.com//x/tv/dynamic/v2/single?mid=" + toString(uid))
+	var o map[string]interface{}
+	json.Unmarshal(res.Body(), &o)
+	var videos = getArray(o, "data.list.cards")
+	if videos == nil || len(videos) == 0 {
+		return ""
+	}
+	var aid = getInt64(videos[0], "card_id")
+	res, _ = client.Resty.R().Get("https://api.bilibili.com//x/tv/ugc/view?aid=" + toString(aid))
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	return getString(obj, "data.pub_location")
 }

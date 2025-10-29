@@ -3,10 +3,11 @@ package bili
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/jinzhu/copier"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/jinzhu/copier"
 )
 
 type Medal struct {
@@ -163,7 +164,7 @@ func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 	stream := s.Data.PlayurlInfo.Playurl.Stream
 	if stream != nil {
 		//Format[0]是ts格式，可以直接拿来拼接，Format[1]是fmp4，需要先把ext-x-map拼到每一个分片前面，好像还有点问题
-		obj := stream[len(stream)-1].Format[0].Codec[ /*len(stream[len(stream)-1].Format[0].Codec)-1*/ 0]
+		obj := stream[len(stream)-1].Format[0].Codec[len(stream[len(stream)-1].Format[0].Codec)-1]
 		if obj.UrlInfo[0].Host+obj.BaseUrl+obj.UrlInfo[0].Extra == "" {
 
 		}

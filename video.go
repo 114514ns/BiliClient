@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
-	"github.com/go-resty/resty/v2"
-	"golang.org/x/net/html"
 	"io"
 	"net/url"
 	"os"
@@ -15,6 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/go-resty/resty/v2"
+	"github.com/google/uuid"
+	"golang.org/x/net/html"
 )
 
 type Video struct {
@@ -44,10 +46,6 @@ type Video struct {
 
 func (v *Video) GetStream(client *BiliClient) []Stream {
 	return client.GetVideoStream(v.BV, v.Cid)
-}
-
-func parseVideo() {
-
 }
 
 func (client *BiliClient) GetVideo(bv string) (result []Video) {
@@ -146,6 +144,15 @@ type Stream struct {
 }
 
 func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
+	if cid == 0 {
+		r0, _ := client.Resty.R().Post("https://api.live.bilibili.com//xlive/open-platform/v1/inner/getArchiveInfo?bv_id=" + bv)
+		var o0 map[string]interface{}
+		json.Unmarshal(r0.Body(), &o0)
+		cid = getInt(o0, "data.cid")
+		if cid == 0 {
+			return []Stream{}
+		}
+	}
 	var url0 = fmt.Sprintf("https://api.bilibili.com/x/player/wbi/playurl?bvid=%s&cid=%d&gaia_source=view-card&isGaiaAvoided=true&qn=32&fnval=4048&try_look=1", bv, cid)
 	parse, _ := url.Parse(url0)
 	query, _ := client.WBI.SignQuery(parse.Query(), time.Now())
@@ -171,7 +178,10 @@ func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
 
 		return results
 	}
-	var audio = getString(getArray(obj, "data.dash.audio")[0], "baseUrl")
+	if getArray(obj, "data.dash.audio") == nil {
+		return []Stream{}
+	}
+	var audio = getArray(getArray(obj, "data.dash.audio")[0], "backupUrl")[0].(string)
 	for _, i := range getArray(obj, "data.dash.video") {
 		var stream = Stream{}
 		stream.Width = getInt(i, "height")
@@ -218,7 +228,7 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...b
 		io.Copy(videoFile, videoLink.RawBody())
 		return
 	}
-	audioFile, _ := os.Create("cache/" + stream.BV + ".mp3")
+	audioFile, _ := os.Create(dist + "/cache/" + stream.BV + ".mp3")
 	var max1 = 3
 	wg.Add(1)
 	go func() {
@@ -234,13 +244,13 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...b
 			}
 			return false
 		}).Get(stream.Audio)
-		os.WriteFile("cache/"+stream.BV+".mp3", audio.Body(), 066)
+		os.WriteFile(dist+"/cache/"+stream.BV+".mp3", audio.Body(), 066)
 		io.Copy(audioFile, audio.RawBody())
 	}()
 
 	defer audioFile.Close()
 
-	videoFile, _ := os.Create("cache/" + stream.BV + ".m4s")
+	videoFile, _ := os.Create(dist + "/cache/" + stream.BV + ".m4s")
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -265,9 +275,9 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...b
 	//log.Println(string(out))
 	cmd.Run()
 
-	os.Remove("cache/" + stream.BV + ".mp4")
-	os.Remove("cache/" + stream.BV + ".mp3")
-	os.Remove("cache/" + stream.BV + ".m4s")
+	os.Remove(dist + "/cache/" + stream.BV + ".mp4")
+	os.Remove(dist + "/cache/" + stream.BV + ".mp3")
+	os.Remove(dist + "/cache/" + stream.BV + ".m4s")
 }
 
 type SearchOption struct {
@@ -297,7 +307,9 @@ func (client *BiliClient) SearchVideo(opinion SearchOption) []Video {
 	//url0 = "https://api.bilibili.com/x/web-interface/wbi/search/type?category_id=&search_type=video&ad_resource=5654&__refresh__=true&_extra=&context=&page=1&page_size=42&pubtime_begin_s=0&pubtime_end_s=0&from_source=&from_spmid=333.337&platform=pc&highlight=1&single_column=0&keyword=%E6%95%B0%E5%AD%A6%E6%9E%97%E8%80%81%E5%B8%88&qv_id=G5siyPleYmCBx7tY2Exr3K3S43G2Gi0b&source_tag=3&gaia_vtoken=&dynamic_offset=0&web_roll_page=1&web_location=1430654"
 	parse, _ := url.Parse(url0)
 	query, _ := client.WBI.SignQuery(parse.Query(), time.Now())
-	res, err := client.Resty.R().Get("https://api.bilibili.com/x/web-interface/search/type?" + query.Encode())
+	var cookie = "buvid3="
+	cookie = cookie + (uuid.New().String()) + "infoc;b_nut=" + strconv.FormatInt(time.Now().Unix(), 10)
+	res, err := client.Resty.R().SetHeader("Cookie", cookie).Get("https://api.bilibili.com/x/web-interface/search/type?" + query.Encode())
 	if err != nil {
 		fmt.Println(err)
 	}
