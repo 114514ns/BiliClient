@@ -156,6 +156,21 @@ func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 		onlyAudio = append(onlyAudio, false)
 	}
 
+	if onlyAudio[0] {
+		res, _ := client.Resty.R().
+			Get("https://api.live.bilibili.com/xlive/app-room/v2/index/getRoomPlayInfo?build=8500200&codec=0,1&device_name=IKUN&format=0,1,2&no_playurl=0&only_audio=1&platform=android&protocol=0,1&qn=250&room_id=" + strconv.Itoa(room))
+
+		var obj map[string]interface{}
+		json.Unmarshal(res.Body(), &obj)
+
+		var o = getArray(getArray(getArray(obj, "data.playurl_info.playurl.stream")[0], "format")[0], "codec")[0]
+
+		var info = getArray(o, "url_info")[0]
+
+		return getString(info, "host") + getString(o, "base_url") + getString(info, "extra")
+
+	}
+
 	uri, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?only_audio=%d&qn=25000&protocol=0,1&format=0,1,2&codec=0,1,2&web_location=444.8&room_id="+strconv.Itoa(room), btoi(onlyAudio[0])))
 	signed, _ := client.WBI.SignQuery(uri.Query(), now)
 	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?" + signed.Encode())

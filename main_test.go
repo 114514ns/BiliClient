@@ -232,7 +232,7 @@ func TestLiveStream(t *testing.T) {
 	//直播流
 	var client = getClient()
 	//var stream = client.GetLiveStream(strconv.Itoa(client.GetAreaLiveByPage(9, 1)[0].Room))
-	var stream = client.GetLiveStream(30931147)
+	var stream = client.GetLiveStream(26854650, true)
 	fmt.Println(stream)
 }
 func TestTraceLiveStream(t *testing.T) {
