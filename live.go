@@ -165,7 +165,7 @@ func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 
 		var o = getArray(getArray(getArray(obj, "data.playurl_info.playurl.stream")[0], "format")[0], "codec")[0]
 
-		var info = getArray(o, "url_info")[0]
+		var info = getArray(o, "url_info")[1]
 
 		return getString(info, "host") + getString(o, "base_url") + getString(info, "extra")
 
