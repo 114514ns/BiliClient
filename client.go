@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	json "github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
@@ -311,7 +312,12 @@ func setupClient(client *BiliClient, cookie string) {
 	client.WBI = NewDefaultWbi()
 	client.WBI.WithRawCookies(cookie)
 	client.WBI.doInitWbi()
-	client.UID = client.selfUID()
+	go func() {
+		for {
+			client.UID = client.selfUID()
+			time.Sleep(10 * time.Minute)
+		}
+	}()
 	client.Address = client.GetLocation().Address
 }
 func (client *BiliClient) CSRF() string {

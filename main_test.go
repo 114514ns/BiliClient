@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"strconv"
 	"testing"
 	"time"
 
@@ -18,14 +17,14 @@ func getClient() *BiliClient {
 
 	var cookie = string(file)
 
-	file, _ = os.ReadFile("access_key.txt")
+	//file, _ = os.ReadFile("access_key.txt")
 	//cookie = ""
 	client := NewClient(cookie, ClientOptions{
-		//HttpProxy: "[2400:c620:2e:2c99::1]:10086",
+		HttpProxy: "[2400:c620:2e:2c99::1]:10086",
 		ProxyUser: "fg27msTTyo",
 		ProxyPass: "PZ8u9Pr2oz",
-		AccessKey: string(file),
-		//NoCookie:  true,
+		//AccessKey: string(file),
+		NoCookie: false,
 	})
 
 	return client
@@ -55,7 +54,7 @@ func TestDynamic(t *testing.T) {
 
 	offset := ""
 	for {
-		dynamics, offset0 := client.GetDynamicsByUser(1523623, offset)
+		dynamics, offset0 := client.GetDynamicsByUser(389133721, false, offset)
 
 		if offset0 != "-1" {
 			offset = offset0
@@ -73,13 +72,6 @@ func TestDynamic(t *testing.T) {
 
 }
 
-func TestBatchGetDynamics(t *testing.T) {
-	client := getClient()
-	client.GetDynamicLight()
-	var ids = make([]int64, 0)
-	ids = append(ids, 943559857729962032)
-	client.BatchGetDynamics(ids)
-}
 func TestDynamicReaction(t *testing.T) {
 	var client = getClient()
 	var page = 1
@@ -125,7 +117,7 @@ func TestLiveDanmaku(t *testing.T) {
 			fmt.Printf("Miss %d Hit %d Rate %2f\n", miss, hit, (float64(hit))/(float64(miss+hit)))
 		}
 	}()
-	client.TraceLive("https://live.bilibili.com/21402309", PrintLiveMsg, HashHandler)
+	client.TraceLive("https://live.bilibili.com/23174842", PrintLiveMsg, nil)
 
 }
 
@@ -164,12 +156,12 @@ func TestVideoComment(t *testing.T) {
 func TestDynamicComment(t *testing.T) {
 	//获取动态评论内容
 	var client = getClient()
-	dyn, _ := client.GetDynamicsByUser(232392815)
+	dyn, _ := client.GetDynamicsByUser(1437582453, true, "")
 	var dst = []Comment{}
 	var off = ""
 	var count = 0
 	for {
-		var array, o = getClient().GetComment(dyn[0].CommentID, off, dyn[0].CommentType, 3)
+		var array, o = getClient().GetComment(dyn[3].CommentID, off, dyn[3].CommentType, 3)
 		off = o
 		time.Sleep(500 * time.Millisecond)
 		for _, comment := range array {
@@ -232,7 +224,7 @@ func TestLiveStream(t *testing.T) {
 	//直播流
 	var client = getClient()
 	//var stream = client.GetLiveStream(strconv.Itoa(client.GetAreaLiveByPage(9, 1)[0].Room))
-	var stream = client.GetLiveStream(26854650, true)
+	var stream = client.GetLiveStream(21379697, true)
 	fmt.Println(stream)
 }
 func TestTraceLiveStream(t *testing.T) {
@@ -246,16 +238,16 @@ func TestAreaLivers(t *testing.T) {
 	for {
 		var list = getClient().GetAreaLiveByPage(9, page)
 		for _, liver := range list {
-			fmt.Println("" +
-				"\"" + strconv.Itoa(liver.Room) + "\",")
+			fmt.Println(liver.UName)
 		}
 		page++
 		total += len(list)
 		if len(list) == 0 {
 			break
 		}
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Millisecond * 500)
 	}
+	fmt.Println(total)
 	//PrintJSON(total)
 }
 
@@ -327,9 +319,24 @@ func PrintLiveMsg(action FrontLiveAction) {
 	}
 }
 
-func TestBiliClient_GetUserLoaction(t *testing.T) {
+func TestGetUserLoaction(t *testing.T) {
 	PrintJSON(getClient().GetUserLocation(3546861088541561))
 
+}
+
+func TestGetUserFav(t *testing.T) {
+	PrintJSON(getClient().GetFavList("3493078891497932", 1))
+}
+
+func TestGetUserList(t *testing.T) {
+	PrintJSON(getClient().GetUserCollection(3493078891497932, 1))
+}
+
+func TestGetCollectionItems(t *testing.T) {
+	var client = getClient()
+	var list = client.GetUserCollection(3493078891497932, 1)
+	var item = list[len(list)-1]
+	PrintJSON(client.GetCollectionItems(item.ID, item.Type, 1, item.UID))
 }
 
 func PrintJSON(obj interface{}) {

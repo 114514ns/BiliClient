@@ -6,8 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/andybalholm/brotli"
-	"github.com/gorilla/websocket"
 	"hash/crc32"
 	"io"
 	"log"
@@ -18,6 +16,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/andybalholm/brotli"
+	"github.com/gorilla/websocket"
 )
 
 type Certificate struct {
@@ -349,6 +350,8 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				} else if text.Cmd == "WATCHED_CHANGE" {
 					var obj = Watched{}
 					json.Unmarshal(msgData, &obj)
+				} else if text.Cmd == "ONLINE_RANK_COUNT" {
+					fmt.Println(text)
 				} else {
 					parsed = false
 

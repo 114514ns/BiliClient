@@ -108,7 +108,7 @@ type ActionItem struct {
 }
 
 // 获取用户收藏夹列表
-func (client *BiliClient) GetCollection(user string, page int) map[string]string {
+func (client *BiliClient) GetFavList(user string, page int) map[string]string {
 	var url = fmt.Sprintf("https://api.bilibili.com/x/v3/fav/folder/created/list?ps=50&pn=%d&up_mid=%s", page, user)
 	res, _ := client.Resty.R().Get(url)
 	var list = CollectionList{}
@@ -118,6 +118,72 @@ func (client *BiliClient) GetCollection(user string, page int) map[string]string
 		m[strconv.Itoa(s.ID)] = s.Title
 	}
 	return m
+}
+
+// 获取合集
+func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
+	var url = fmt.Sprintf("https://api.bilibili.com/x/polymer/web-space/seasons_series_list?mid=%d&page_size=20&page_num=%d", uid, page)
+
+	res, _ := client.Resty.R().Get(url)
+
+	var obj map[string]interface{}
+
+	json.Unmarshal(res.Body(), &obj)
+
+	var m = make([]Collection, 0)
+
+	for _, item := range getArray(obj, "data.items_lists.seasons_list") {
+		var c Collection
+		c.Title = getString(item, "meta.name")
+		c.Type = "season"
+		c.ID = getInt64(item, "meta.season_id")
+		c.UID = uid
+
+		m = append(m, c)
+	}
+	for _, item := range getArray(obj, "data.items_lists.series_list") {
+		var c Collection
+		c.Title = getString(item, "meta.name")
+		c.Type = "series"
+		c.ID = getInt64(item, "meta.series_id")
+		c.UID = uid
+		m = append(m, c)
+	}
+
+	return m
+
+}
+
+// 获取合集内容
+func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, uid int64) []Video {
+	var prefix = "https://api.bilibili.com/x/series/archives"
+
+	var p = "series_id"
+
+	if typo == "" {
+		prefix = "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+		p = "season_id"
+	}
+
+	res, _ := client.Resty.R().Get(fmt.Sprintf("%s?mid=%d&%s=%d&ps=%d&pn=%d&sort_reverse=false&sort=desc", prefix, uid, p, id, 20, page))
+	var obj map[string]interface{}
+
+	json.Unmarshal(res.Body(), &obj)
+
+	var m = make([]Video, 0)
+
+	for _, item := range getArray(obj, "data.archives") {
+		var v Video
+		v.BV = getString(item, "bvid")
+		v.Title = getString(item, "title")
+		v.Duration = FormatDuration(getInt(item, "duration"))
+		v.CreateAt = time.Unix(int64(getInt(item, "pubdate")), 0).Add(time.Hour * 8)
+		v.UID = uid
+		m = append(m, v)
+	}
+
+	return m
+
 }
 
 // 获取用户关注
@@ -155,7 +221,7 @@ func (client *BiliClient) GetFollowingByPage(user string, page int) map[string]s
 }
 
 // 获取用户动态
-func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dynamic, string) {
+func (client *BiliClient) GetDynamicsByUser(user int64, includeForward bool, offset0 ...string) ([]Dynamic, string) {
 	offset := ""
 	if len(offset0) != 0 {
 		offset = offset0[0]
@@ -173,9 +239,9 @@ func (client *BiliClient) GetDynamicsByUser(user int64, offset0 ...string) ([]Dy
 	if getString(obj, "message") != "0" {
 		fmt.Println(res.String())
 
-		return client.GetDynamicsByUser(user, offset0...)
+		return client.GetDynamicsByUser(user, includeForward, offset0...)
 	}
-	var archives = parseDynamic(obj, (offset == "" || offset == "-480"))
+	var archives = parseDynamic(obj, includeForward, (offset == "" || offset == "-480"))
 	return archives, getString(obj, "data.offset")
 }
 func (dyn *Dynamic) GetComment() {
@@ -226,7 +292,7 @@ func parseDynamic0(m interface{}) []Dynamic {
 			}
 			if typo == "MDL_DYN_TYPE_FORWARD" {
 				dynamic.ForwardFrom = toInt64(getString(i2, "module_dynamic.dyn_forward.item.id_str"))
-				//result = append(result, parseDynamic0(i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_forward"].(map[string]interface{})["item"])...)
+				result = append(result, parseDynamic0(i2.(map[string]interface{})["module_dynamic"].(map[string]interface{})["dyn_forward"].(map[string]interface{})["item"])...)
 			}
 		case "MODULE_TYPE_STAT":
 			dynamic.Comments = getInt(i2, "module_stat.comment.count")
@@ -245,7 +311,7 @@ func parseDynamic0(m interface{}) []Dynamic {
 	return result
 }
 
-func parseDynamic(item interface{}, isFirst bool) []Dynamic {
+func parseDynamic(item interface{}, isFirst bool, includeForward bool) []Dynamic {
 	var result []Dynamic
 	for _, m := range item.(map[string]interface{})["data"].(map[string]interface{})["items"].([]interface{}) {
 
@@ -733,26 +799,6 @@ func (client *BiliClient) GetReactionList(oid int64, page int) []ActionItem {
 	return results
 }
 
-func (client *BiliClient) GetDynamicLight() {
-	var jsonStr = `
-		{
-		    "fake_uid": 451537183,
-			"page":1
-			
-		}
-		`
-	msg := dynamic.NewMessage(protoMap[ProtoType.DynLightReq])
-	err := msg.UnmarshalJSON([]byte(jsonStr))
-	if err != nil {
-		fmt.Println(err)
-	}
-	payload, _ := msg.Marshal()
-	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Dynamic/DynLight")
-	var obj map[string]interface{}
-	json.Unmarshal(response.Body(), &obj)
-	fmt.Println(obj)
-}
-
 // 点赞列表
 // 2是普通图文类型，8是视频类型
 // 不支持DYNAMIC_TEXT,
@@ -786,28 +832,6 @@ func (client *BiliClient) GetLikeListRPC(oid int64, typo int, rid int64, page in
 		results = append(results, o)
 	}
 	return results, getBool(obj, "hasMore")
-}
-
-func (client *BiliClient) BatchGetDynamics(ids []int64) {
-	var jsonStr = `
-		{
-		    "dynamic_ids": "943559857729962032"
-		}
-		`
-
-	//var req = fmt.Sprintf(jsonStr, ids[0])
-	msg := dynamic.NewMessage(protoMap[ProtoType.DynDetailsReq])
-	err := msg.UnmarshalJSON([]byte(jsonStr))
-	if err != nil {
-		fmt.Println(err)
-	}
-	payload, _ := msg.Marshal()
-	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Dynamic/DynDetails")
-	var obj map[string]interface{}
-	json.Unmarshal(response.Body(), &obj)
-	for _, _ = range getArray(obj, "list") {
-
-	}
 }
 
 // 获取当前ip

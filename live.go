@@ -151,6 +151,15 @@ func (client BiliClient) GetOnline(room string, liver string) []LiveUser {
 }
 func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 
+	if client.UID == 0 {
+		res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/playUrl?cid=%d&platform=h5&qn=25000", room))
+		var obj map[string]interface{}
+		json.Unmarshal(res.Body(), &obj)
+		if len(getArray(obj, "data.durl")) > 0 {
+			return getString(getArray(obj, "data.durl")[0], "url")
+		}
+	}
+
 	now := time.Now()
 	if len(onlyAudio) == 0 {
 		onlyAudio = append(onlyAudio, false)
@@ -201,6 +210,9 @@ func (client BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {
 	var array = make([]AreaLiver, 0)
 	if len(obj.Data.List) == 0 {
 		fmt.Println(res.String())
+		time.Sleep(time.Second * 2)
+		res, _ = client.Resty.R().Get("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?" + s.Encode())
+		json.Unmarshal(res.Body(), &obj)
 	}
 	for _, s2 := range obj.Data.List {
 		var liver = AreaLiver{}

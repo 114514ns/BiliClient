@@ -670,3 +670,10 @@ type CollectionListResponse struct {
 		} `json:"items_lists"`
 	} `json:"data"`
 }
+
+type Collection struct {
+	Title string
+	ID    int64
+	Type  string
+	UID   int64
+}
