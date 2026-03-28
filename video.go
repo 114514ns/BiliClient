@@ -20,28 +20,30 @@ import (
 )
 
 type Video struct {
-	Aid         int64
-	Title       string
-	Desc        string
-	UName       string
-	UID         int64
-	Cover       string
-	BV          string
-	CreateAt    time.Time
-	Face        string
-	Cid         int
-	Duration    string
-	Part        int
-	ParentTitle string
-	View        int
-	Reply       int
-	Coin        int
-	Share       int
-	Like        int
-	Danmaku     int
-	Favorite    int
-	Tags        string
-	RawResponse string
+	Aid            int64
+	Title          string
+	Desc           string
+	UName          string
+	UID            int64
+	Cover          string
+	BV             string
+	CreateAt       time.Time
+	Face           string
+	Cid            int
+	Duration       string
+	Part           int
+	ParentTitle    string
+	View           int
+	Reply          int
+	Coin           int
+	Share          int
+	Like           int
+	Danmaku        int
+	Favorite       int
+	Tags           string
+	RawResponse    string
+	CollectionName string
+	CollectionID   int64
 }
 
 func (v *Video) GetStream(client *BiliClient) []Stream {
@@ -244,7 +246,10 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...b
 			}
 			return false
 		}).Get(stream.Audio)
-		os.WriteFile(dist+"/cache/"+stream.BV+".mp3", audio.Body(), 066)
+		e0 := os.WriteFile(dist+"/cache/"+stream.BV+".mp3", audio.Body(), 066)
+		if e0 != nil {
+			fmt.Println(e0)
+		}
 		io.Copy(audioFile, audio.RawBody())
 	}()
 
@@ -270,7 +275,7 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...b
 
 	wg.Wait()
 
-	cmd := exec.Command("ffmpeg", "-i", videoFile.Name(), "-i", audioFile.Name(), "-vcodec", "copy", "-acodec", "copy", dist+"/"+stream.BV+"-"+strconv.Itoa(stream.Cid)+".mp4")
+	cmd := exec.Command("ffmpeg", "-i", videoFile.Name(), "-i", audioFile.Name(), "-vcodec", "copy", "-acodec", "libopus", dist+"/"+stream.BV+"-"+strconv.Itoa(stream.Cid)+".mp4")
 	//out, _ := cmd.CombinedOutput()
 	//log.Println(string(out))
 	cmd.Run()

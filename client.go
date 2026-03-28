@@ -17,6 +17,7 @@ import (
 
 	json "github.com/bytedance/sonic"
 	"github.com/go-resty/resty/v2"
+	"github.com/google/uuid"
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/jhump/protoreflect/dynamic"
@@ -30,6 +31,7 @@ type ClientOptions struct {
 	ResetConnection bool
 	NoCookie        bool
 	Retry           int
+	ProxyURL        string
 	AccessKey       string
 	PrintErrorURL   bool
 	PrintErrorStack bool
@@ -43,6 +45,9 @@ type BiliClient struct {
 	UID       int64
 	Options   ClientOptions
 	Address   string
+	Internal  struct {
+		RefreshUIDTicker *time.Ticker
+	}
 }
 type protoType0 struct {
 	Reply_MainListReply   string
@@ -62,6 +67,9 @@ type protoType0 struct {
 	DynLightReply         string
 	OpusDetailReq         string
 	OpusDetailReply       string
+
+	DynSpaceReq   string
+	DynSpaceReply string
 }
 
 var ProtoType protoType0
@@ -101,6 +109,7 @@ func NewAnonymousClient(options ClientOptions) *BiliClient {
 	return client
 }
 func setupClient(client *BiliClient, cookie string) {
+	client.Internal.RefreshUIDTicker = time.NewTicker(600 * time.Second)
 	_, err := os.Open("bilibili")
 	if client.Options.Retry == 0 {
 		client.Resty.SetRetryCount(3)
@@ -133,6 +142,9 @@ func setupClient(client *BiliClient, cookie string) {
 			ProtoType.OpusDetailReq = "Opus.OpusDetailReq"
 			ProtoType.OpusDetailReply = "Opus.OpusDetailReply"
 
+			ProtoType.DynSpaceReq = "Dyn.SpaceReq"
+			ProtoType.DynSpaceReply = "Dyn.SpaceReply"
+
 			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
 			fd := fds[0]
 			protoMap[ProtoType.Reply_MainListReply] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReply")
@@ -160,11 +172,17 @@ func setupClient(client *BiliClient, cookie string) {
 
 			protoMap[ProtoType.OpusDetailReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReq")
 			protoMap[ProtoType.OpusDetailReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReply")
+
+			protoMap[ProtoType.DynSpaceReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynSpaceReq")
+			protoMap[ProtoType.DynSpaceReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynSpaceRsp")
 		}
 	}
 	if client.Options.HttpProxy != "" {
 		proxyURL, _ := url.Parse(fmt.Sprintf("http://%s:%s@%s", client.Options.ProxyUser, client.Options.ProxyPass, client.Options.HttpProxy))
 		client.Resty.SetProxy(proxyURL.String())
+	}
+	if client.Options.ProxyURL != "" {
+		client.Resty.SetProxy(client.Options.ProxyURL)
 	}
 	client.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0"
 	client.Resty.SetCookieJar(nil)
@@ -197,6 +215,7 @@ func setupClient(client *BiliClient, cookie string) {
 			request.SetHeader("buvid", buvid)
 			request.SetHeader("x-bili-fawkes-req-bin", getFawkes())
 			request.SetHeader("content-type", "application/grpc")
+
 			var payload = request.Body.([]byte)
 
 			frame := make([]byte, 5+len(payload))
@@ -224,8 +243,11 @@ func setupClient(client *BiliClient, cookie string) {
 		if strings.Contains(request.URL, "electron") {
 			ref = "client"
 		}
-		if !client.Options.NoCookie {
+		if !client.Options.NoCookie && request.Header.Get("Cookie") == "" {
 			request.Header.Set("Cookie", client.Cookie)
+		}
+		if !strings.Contains(request.Header.Get("Cookie"), "buvid3=") {
+			request.SetHeader("Cookie", request.Header.Get("Cookie")+" buvid3="+uuid.NewString()+"infoc;")
 		}
 		request.Header.Set("Referer", "https://www.bilibili.com/"+ref)
 
@@ -260,6 +282,9 @@ func setupClient(client *BiliClient, cookie string) {
 			}
 			if strings.Contains(url0, "Dynamic/DynDetails") {
 				typo = ProtoType.DynDetailsReply
+			}
+			if strings.Contains(url0, "Dynamic/DynSpace") {
+				typo = ProtoType.DynSpaceReply
 			}
 			msg := dynamic.NewMessage(protoMap[typo])
 			err = msg.Unmarshal(dist)
@@ -312,13 +337,21 @@ func setupClient(client *BiliClient, cookie string) {
 	client.WBI = NewDefaultWbi()
 	client.WBI.WithRawCookies(cookie)
 	client.WBI.doInitWbi()
+	client.UID = client.selfUID()
 	go func() {
 		for {
-			client.UID = client.selfUID()
-			time.Sleep(10 * time.Minute)
+			select {
+			case <-client.Internal.RefreshUIDTicker.C:
+				if client.Cookie != "" {
+					//client.UID = client.selfUID()
+				}
+			}
 		}
 	}()
 	client.Address = client.GetLocation().Address
+}
+func (client *BiliClient) Destory() {
+	client.Internal.RefreshUIDTicker.Stop()
 }
 func (client *BiliClient) CSRF() string {
 	split := strings.Split(client.Cookie, ";")

@@ -43,6 +43,9 @@ type Dynamic struct {
 	ForwardFrom int64
 	RawResponse string
 	Forwarded   bool
+
+	View     int
+	Danmakus int
 }
 type Comment struct {
 	ID      int64
@@ -84,6 +87,7 @@ type FaceMap struct {
 	UID   int64
 	Face  string
 	UName string
+	Bio   string
 }
 
 type User struct {
@@ -124,7 +128,11 @@ func (client *BiliClient) GetFavList(user string, page int) map[string]string {
 func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
 	var url = fmt.Sprintf("https://api.bilibili.com/x/polymer/web-space/seasons_series_list?mid=%d&page_size=20&page_num=%d", uid, page)
 
-	res, _ := client.Resty.R().Get(url)
+	var u0, _ = url2.Parse(url)
+
+	query, _ := client.WBI.SignQuery(u0.Query(), time.Now())
+
+	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-space/seasons_series_list?" + query.Encode())
 
 	var obj map[string]interface{}
 
@@ -155,17 +163,24 @@ func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
 }
 
 // 获取合集内容
-func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, uid int64) []Video {
+func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, uid int64, ret ...bool) ([]Video, string) {
 	var prefix = "https://api.bilibili.com/x/series/archives"
 
 	var p = "series_id"
 
-	if typo == "" {
+	if typo == "season" {
 		prefix = "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
 		p = "season_id"
 	}
 
-	res, _ := client.Resty.R().Get(fmt.Sprintf("%s?mid=%d&%s=%d&ps=%d&pn=%d&sort_reverse=false&sort=desc", prefix, uid, p, id, 20, page))
+	var u = fmt.Sprintf("%s?mid=%d&%s=%d&ps=%d&pn=%d&sort_reverse=false&sort=desc", prefix, uid, p, id, 20, page)
+	if typo == "season" {
+		u = strings.Replace(u, "&ps", "&page_size", 1)
+		u = strings.Replace(u, "pn", "page_num", 1)
+	}
+	var u0, _ = url2.Parse(u)
+	query, _ := client.WBI.SignQuery(u0.Query(), time.Now())
+	res, _ := client.Resty.R().Get(prefix + "?" + query.Encode())
 	var obj map[string]interface{}
 
 	json.Unmarshal(res.Body(), &obj)
@@ -178,11 +193,23 @@ func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, ui
 		v.Title = getString(item, "title")
 		v.Duration = FormatDuration(getInt(item, "duration"))
 		v.CreateAt = time.Unix(int64(getInt(item, "pubdate")), 0).Add(time.Hour * 8)
+		v.Aid = getInt64(item, "aid")
 		v.UID = uid
 		m = append(m, v)
 	}
+	var title = getString(obj, "data.meta.name")
+	if title == "" {
 
-	return m
+		r0, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/series/series?series_id=%d", id))
+		var o map[string]interface{}
+		json.Unmarshal(r0.Body(), &o)
+		title = getString(o, "data.meta.name")
+	}
+	if typo != "" || len(ret) != 0 {
+		return m, title
+	} else {
+		return client.GetCollectionItems(id, "season", page, uid, true)
+	}
 
 }
 
@@ -241,8 +268,17 @@ func (client *BiliClient) GetDynamicsByUser(user int64, includeForward bool, off
 
 		return client.GetDynamicsByUser(user, includeForward, offset0...)
 	}
-	var archives = parseDynamic(obj, includeForward, (offset == "" || offset == "-480"))
+	var archives = parseDynamic(obj, (offset == "" || offset == "-480"), includeForward)
 	return archives, getString(obj, "data.offset")
+}
+
+// 根据oid获取动态
+func (client *BiliClient) GetDynamicByOID(oid int64) []Dynamic {
+	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/detail?build=11705&platform=web&device=linux&mobi_app=pc_electron&id=" + toString(oid))
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	archives := parseDynamic0(obj["data"].(map[string]interface{})["item"])
+	return archives
 }
 func (dyn *Dynamic) GetComment() {
 
@@ -289,6 +325,8 @@ func parseDynamic0(m interface{}) []Dynamic {
 				dynamic.BV = getString(i2, "module_dynamic.dyn_archive.bvid")
 				dynamic.Images = []string{getString(i2, "module_dynamic.dyn_archive.cover")}
 				dynamic.Title = getString(i2, "module_dynamic.dyn_archive.title")
+				dynamic.View = toInt(getString(i2, "module_dynamic.dyn_archive.stat.play"))
+				dynamic.Danmakus = toInt(getString(i2, "module_dynamic.dyn_archive.stat.danmaku"))
 			}
 			if typo == "MDL_DYN_TYPE_FORWARD" {
 				dynamic.ForwardFrom = toInt64(getString(i2, "module_dynamic.dyn_forward.item.id_str"))
@@ -322,8 +360,11 @@ func parseDynamic(item interface{}, isFirst bool, includeForward bool) []Dynamic
 		dyn.Forwarded = false
 		result = append(result, dyn)
 		if len(parse) == 2 {
-			parse[1].Forwarded = true
-			result = append(result, parse[1])
+			if includeForward {
+				parse[1].Forwarded = true
+				result = append(result, parse[1])
+			}
+
 		}
 	}
 	return result
@@ -659,6 +700,9 @@ func (client *BiliClient) GetUser(id int64) (User, int) {
 	if getInt(obj, "code") == -352 {
 		return user, 2
 	}
+	if getString(obj, "message") != "OK" {
+		return user, 2
+	}
 	user.UName = getString(obj, "data.card.name")
 
 	user.Level = int8(getInt64(obj, "data.card.level_info.current_level"))
@@ -799,6 +843,34 @@ func (client *BiliClient) GetReactionList(oid int64, page int) []ActionItem {
 	return results
 }
 
+func (client *BiliClient) GetDynamicByUIDRPC(uid int64, page int) ([]Dynamic, bool) {
+
+	var jsonStr = `
+			{
+			    "host_uid": %d,
+				"page": %d,
+				"local_time":8,
+				"from":"space"
+
+			}
+			`
+	var req = fmt.Sprintf(jsonStr, uid, page)
+
+	msg := dynamic.NewMessage(protoMap[ProtoType.DynSpaceReq])
+	err := msg.UnmarshalJSON([]byte(req))
+	//err := msg.UnmarshalJSON([]byte(req))
+	if err != nil {
+		fmt.Println(err)
+	}
+	payload, _ := msg.Marshal()
+	//payload, _ = os.ReadFile("DynSpace.")
+	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Dynamic/DynSpace")
+	var obj map[string]interface{}
+	json.Unmarshal(response.Body(), &obj)
+
+	return nil, false
+}
+
 // 点赞列表
 // 2是普通图文类型，8是视频类型
 // 不支持DYNAMIC_TEXT,
@@ -855,16 +927,66 @@ func (client *BiliClient) GetLocation(ip ...string) Location {
 }
 
 func (client *BiliClient) GetUserLocation(uid int64) string {
-	res, _ := client.Resty.R().Get("https://api.bilibili.com//x/tv/dynamic/v2/single?mid=" + toString(uid))
-	var o map[string]interface{}
-	json.Unmarshal(res.Body(), &o)
-	var videos = getArray(o, "data.list.cards")
-	if videos == nil || len(videos) == 0 {
+	if client.UID == 0 && client.Options.AccessKey == "" {
+		res, _ := client.Resty.R().Get("https://api.bilibili.com//x/tv/dynamic/v2/single?mid=" + toString(uid))
+		var o map[string]interface{}
+		json.Unmarshal(res.Body(), &o)
+		var videos = getArray(o, "data.list.cards")
+		if videos == nil || len(videos) == 0 {
+			return ""
+		}
+		var aid = getInt64(videos[0], "card_id")
+		res, _ = client.Resty.R().Get("https://api.bilibili.com//x/tv/ugc/view?aid=" + toString(aid))
+		var obj map[string]interface{}
+		json.Unmarshal(res.Body(), &obj)
+		return getString(obj, "data.pub_location")
+	} else {
+		res, _ := client.Resty.R().Get(appSign(fmt.Sprintf("https://app.bilibili.com/x/v2/space?access_key=%s&appkey=1d8b6e7d45233436&build=8770300&c_locale=zh-Hans_CN&channel=xiaomi&client_attr=0&disable_rcmd=0&fnval=84944&fnver=0&force_host=0&fourk=1&from=0&local_time=8&mobi_app=android&platform=android&player_net=1&qn=32&qn_policy=1&s_locale=zh-Hans_CN&ts=1770111164&vmid=%d&voice_balance=1", client.Options.AccessKey, uid)))
+		var obj map[string]interface{}
+		json.Unmarshal(res.Body(), &obj)
+		for _, i := range getArray(obj, "data.card.space_tag") {
+			if getString(i, "type") == "location" {
+				return strings.Replace(getString(i, "title"), "IP属地：", "", 1)
+			}
+		}
 		return ""
 	}
-	var aid = getInt64(videos[0], "card_id")
-	res, _ = client.Resty.R().Get("https://api.bilibili.com//x/tv/ugc/view?aid=" + toString(aid))
+
+}
+
+func (client *BiliClient) GetCharge(uid int64) []ChargeInfo {
+
+	var array []ChargeInfo
+
+	var url = fmt.Sprintf("https://api.bilibili.com/x/upower/up/member/rank/v2?pn=1&privilege_type=10&ps=100&up_mid=%d", uid)
+
+	res, _ := client.Resty.R().Get(url)
 	var obj map[string]interface{}
 	json.Unmarshal(res.Body(), &obj)
-	return getString(obj, "data.pub_location")
+	for _, o := range getArray(obj, "data.level_info") {
+		array = append(array, ChargeInfo{
+			Name:  getString(o, "name"),
+			Price: float64(getInt(o, "price") / 100.0),
+			Count: getInt(o, "member_total"),
+		})
+	}
+
+	return array
+}
+
+func (client *BiliClient) SearchUser(keyword string) []User {
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/web-interface/search/type?category_id=&search_type=bili_user&ad_resource=5646&__refresh__=true&_extra=&context=&page=1&page_size=36&order=&from_spmid=333.337&platform=pc&keyword=%s&source_tag=3&gaia_vtoken=&order_sort=0&user_type=0", keyword))
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	var dst []User
+	for _, i := range getArray(obj, "data.result") {
+		dst = append(dst, User{
+			UID:   getInt64(i, "mid"),
+			UName: getString(i, "uname"),
+			Bio:   getString(i, "usign"),
+			Face:  getString(i, "upmic"),
+			Fans:  uint(getInt(i, "fans")),
+		})
+	}
+	return dst
 }

@@ -45,22 +45,27 @@ type AreaLiver struct {
 	Cover string
 }
 
-func (client BiliClient) GetGuard(room string, liver string, delay int) []LiveUser {
+func (client *BiliClient) GetGuard(room string, liver string, delay int, typo ...int) []LiveUser {
 	var arr = make([]LiveUser, 0)
 	var page = 1
 	for true {
-		part := client.GetGuardByPage(room, liver, page)
+		part := client.GetGuardByPage(room, liver, page, typo...)
 		page++
-		if len(part) == 0 || len(part) != 30 {
+		arr = append(arr, part...)
+		if len(part) == 0 || len(part) < 30 {
 			break
 		}
 		time.Sleep(time.Millisecond * time.Duration(delay))
 	}
 	return arr
 }
-func (client BiliClient) GetGuardByPage(room string, liver string, page int) []LiveUser {
+func (client *BiliClient) GetGuardByPage(room string, liver string, page int, typo ...int) []LiveUser {
+	var typo0 = 3
+	if len(typo) > 0 {
+		typo0 = typo[0]
+	}
 	var arr = make([]LiveUser, 0)
-	var url = fmt.Sprintf("https://api.live.com/xlive/app-room/v2/guardTab/topListNew?roomid=%s&page=%s&ruid=%s&page_size=30", room, strconv.Itoa(page), liver)
+	var url = fmt.Sprintf("https://api.live.bilibili.com/xlive/app-room/v2/guardTab/topListNew?roomid=%s&page=%s&ruid=%s&page_size=30&type=%d", room, strconv.Itoa(page), liver, typo0)
 	res, _ := client.Resty.R().Get(url)
 	var r = GuardListResponse{}
 	json.Unmarshal(res.Body(), &r)
@@ -95,7 +100,7 @@ func (client BiliClient) GetGuardByPage(room string, liver string, page int) []L
 
 	return arr
 }
-func (client BiliClient) GetFansClub(liver string, delay int, onError func(msg string)) []LiveUser {
+func (client *BiliClient) GetFansClub(liver string, delay int, onError func(msg string)) []LiveUser {
 	var page = 1
 	var list = make([]LiveUser, 0)
 	t := "0"
@@ -129,7 +134,7 @@ func (client BiliClient) GetFansClub(liver string, delay int, onError func(msg s
 	}
 	return list
 }
-func (client BiliClient) GetOnline(room string, liver string) []LiveUser {
+func (client *BiliClient) GetOnline(room string, liver string) []LiveUser {
 	var url = fmt.Sprintf("https://api.live.bilibili.com/xlive/general-interface/v1/rank/queryContributionRank?ruid=%s&room_id=%s", liver, room)
 	res, _ := client.Resty.R().Get(url)
 	var o = OnlineWatcherResponse{}
@@ -149,7 +154,16 @@ func (client BiliClient) GetOnline(room string, liver string) []LiveUser {
 	}
 	return arr
 }
-func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
+
+// onlyAudio为true时，只返回flv
+// 账号未登录时，只能返回ts视频流
+// 登录后，可以返回ts和fmp4
+func (client *BiliClient) GetLiveStream(room int, container string, onlyAudio ...bool) string {
+
+	var containerIndex = 0
+	if container == "fmp4" {
+		containerIndex = 1
+	}
 
 	if client.UID == 0 {
 		res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/playUrl?cid=%d&platform=h5&qn=25000", room))
@@ -188,7 +202,7 @@ func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 	stream := s.Data.PlayurlInfo.Playurl.Stream
 	if stream != nil {
 		//Format[0]是ts格式，可以直接拿来拼接，Format[1]是fmp4，需要先把ext-x-map拼到每一个分片前面，好像还有点问题
-		obj := stream[len(stream)-1].Format[0].Codec[len(stream[len(stream)-1].Format[0].Codec)-1]
+		obj := stream[len(stream)-1].Format[containerIndex].Codec[len(stream[len(stream)-1].Format[containerIndex].Codec)-1]
 		if obj.UrlInfo[0].Host+obj.BaseUrl+obj.UrlInfo[0].Extra == "" {
 
 		}
@@ -200,12 +214,12 @@ func (client BiliClient) GetLiveStream(room int, onlyAudio ...bool) string {
 	return ""
 
 }
-func (client BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {
+func (client *BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {
 	var now = time.Now()
-	u, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?parent_area_id=%d&area_id=0&sort_type=&page=%d&&platform=web&device=win&build=1001016004&web_location=bilibili-electron", area, page))
+	u, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?area_id=0&build=1001016004&device=win&page=%d&parent_area_id=%d&platform=web&web_location=bilibili-electron&sort_type=%s", page, area, ""))
 	s, _ := client.WBI.SignQuery(u.Query(), now)
-	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?" + s.Encode())
 	obj := AreaLiverListResponse{}
+	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/app-interface/v2/second/getList?" + s.Encode())
 	json.Unmarshal(res.Body(), &obj)
 	var array = make([]AreaLiver, 0)
 	if len(obj.Data.List) == 0 {

@@ -2,7 +2,9 @@ package bili
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -99,6 +102,10 @@ func toString(i int64) string {
 func toInt64(s string) int64 {
 	i, _ := strconv.ParseInt(s, 10, 64)
 	return i
+}
+func toInt(s string) int {
+	i, _ := strconv.ParseInt(s, 10, 64)
+	return int(i)
 }
 
 type JsonType struct {
@@ -333,4 +340,27 @@ func collectProtoFiles(root string) ([]string, error) {
 		return nil
 	})
 	return files, err
+}
+
+func appSign(rawURL string) string {
+	u, err := url2.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	params := u.Query()
+	params.Set("appkey", "1d8b6e7d45233436")
+
+	paramStr := params.Encode()
+
+	const secret = "560c52ccd288fed045859ed18bffd973"
+	sum := md5.Sum([]byte(paramStr + secret))
+	sign := hex.EncodeToString(sum[:])
+
+	parts := strings.Split(paramStr, "&")
+	sort.Strings(parts)
+	sortedQuery := strings.Join(parts, "&")
+
+	finalURL := "https://" + u.Host + u.Path + "?" + sortedQuery + "&sign=" + sign
+	return finalURL
 }

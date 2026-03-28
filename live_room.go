@@ -9,6 +9,7 @@ import (
 	"hash/crc32"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,6 +29,7 @@ type Certificate struct {
 	Protover int    `json:"protover"`
 	Cookie   string `json:"buvid"`
 	Type     int    `json:"type"`
+	UUID     string `jsonLqueue_uuid`
 }
 
 func buildMessage(str string, opCode int) []byte {
@@ -135,33 +137,72 @@ func (client *BiliClient) GetHistory(room int) []FrontLiveAction {
 
 }
 
+func (client *BiliClient) GetLiveOnlineRank(room int, uid0 ...int64) []User {
+	var dst []User
+	var uid int64 = 0
+	if len(uid0) > 0 {
+		uid = uid0[0]
+	} else {
+		res, _ := client.Resty.R().Get("https://api.live.bilibili.com/room/v1/Room/get_info?room_id=%d" + toString(int64(room)))
+		var obj map[string]interface{}
+		json.Unmarshal(res.Body(), &obj)
+		uid = getInt64(res, "data.uid")
+	}
+	var url = fmt.Sprintf("https://api.live.bilibili.com/xlive/general-interface/v1/rank/queryContributionRank?ruid=%d&room_id=%d", uid, room)
+	res, _ := client.Resty.R().Get(url)
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	for _, i := range getArray(obj, "data.item") {
+		dst = append(dst, User{
+			Face:  getString(i, "face"),
+			UID:   getInt64(i, "uid"),
+			UName: getString(i, "name"),
+		})
+	}
+
+	return dst
+}
+func randomQueueString() string {
+	rand.Seed(time.Now().UnixNano())
+	randNum := rand.Float64()
+	str := strconv.FormatFloat(randNum, 'f', -1, 64)
+	numStr := strconv.FormatInt(int64(randNum*1e15), 36)
+	_ = str
+	if len(numStr) < 8 {
+		return numStr
+	}
+	return numStr[len(numStr)-8:]
+}
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), hashHandler func(hash string, name *string, id *int64)) {
 	if strings.Contains(room, "https") {
 		room = strings.Split(room, "/")[3:][0]
 	}
-	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room + "&is_anchor=true"
+	url0 := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?type=0&id=" + room + "&is_anchor=true&isGaiaAvoided=true"
 	query, _ := url.Parse(url0)
 	signed, _ := client.WBI.SignQuery(query.Query(), time.Now())
-	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?" + signed.Encode())
+	res, _ := client.Resty.R().SetHeader("Cookie", client.Cookie).Get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?" + signed.Encode())
 	var liveInfo = LiveInfo{}
 	json.Unmarshal(res.Body(), &liveInfo)
 	ticker := time.NewTicker(45 * time.Second)
 	var dialer = &websocket.Dialer{
 		HandshakeTimeout: 45 * time.Second,
 	}
-	u := url.URL{Scheme: "wss", Host: liveInfo.Data.HostList[0].Host + ":2245", Path: "/sub"}
+	var host = liveInfo.Data.HostList[0].Host
+	host = "ali-sh-live-comet-08.chat.bilibili.com"
+	u := url.URL{Scheme: "wss", Host: host + ":2245", Path: "/sub"}
 	var header = http.Header{}
 	header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 	c, _, err := dialer.Dial(u.String(), header)
 	go func() {
 		var cer = Certificate{}
-		cer.Uid = client.UID
+		//cer.Uid = client.selfUID()
 		id, _ := strconv.Atoi(room)
 		cer.RoomId = id
 		cer.Type = 2
 		cer.Key = liveInfo.Data.Token
-		/*cer.Cookie = strings.Replace(client.Cookie, "buvid3=", "", 1)*/
+		cer.Cookie = strings.Replace(client.Cookie, "buvid3=", "", 1)
 		cer.Protover = 3
+		cer.UUID = randomQueueString()
 		cerJson, _ := json.Marshal(&cer)
 
 		err := c.WriteMessage(websocket.TextMessage, buildMessage(string(cerJson), 7))
@@ -171,7 +212,14 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 		for {
 			_, message, err := c.ReadMessage()
 			if err != nil {
+				time.Sleep(2 * time.Second)
+				c, _, _ = dialer.Dial(u.String(), header)
+				if c != nil {
+					c.WriteMessage(websocket.TextMessage, buildMessage(string(cerJson), 7))
 
+				}
+				time.Sleep(5 * time.Second)
+				continue
 			}
 			reader := io.NewSectionReader(bytes.NewReader(message), 16, int64(len(message)-16))
 			brotliReader := brotli.NewReader(reader)
@@ -217,6 +265,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				var front = FrontLiveAction{}
 				parsed := true
 				front.Emoji = make(map[string]string)
+				front.Time = time.Now()
 				if strings.Contains(obj, "DANMU_MSG") && !strings.Contains(obj, "RECALL_DANMU_MSG") { // 弹幕
 					action.ActionName = "msg"
 					action.Hash = text.Info[0].([]interface{})[7].(string)
@@ -305,7 +354,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					}
 					front.Face = info.Data.Face
 					front.GiftPicture = GiftPic[info.Data.GiftName]
-				} else if strings.Contains(obj, "INTERACT_WORD") { //进入直播间
+				} else if text.Cmd == "INTERACT_WORD" { //进入直播间
 
 					var enter = EnterLive{}
 					json.Unmarshal(msgData, &enter)
@@ -313,10 +362,10 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					action.FromName = enter.Data.Uname
 					action.ActionName = "enter"
 					front.LiveAction = action
-					//db.Create(&action)
+					//log.Printf("[%s] 进入直播间", action.FromName)
 
 				} else if strings.Contains(obj, "PREPARING") {
-
+					c.Close()
 				} else if text.Cmd == "LIVE" {
 
 				} else if strings.Contains(obj, "SUPER_CHAT_MESSAGE") { //SC
@@ -351,10 +400,9 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					var obj = Watched{}
 					json.Unmarshal(msgData, &obj)
 				} else if text.Cmd == "ONLINE_RANK_COUNT" {
-					fmt.Println(text)
+					//fmt.Println(text)
 				} else {
-					parsed = false
-
+					//log.Println(string(msgData))
 				}
 				front.LiveAction = action
 				if parsed {
@@ -365,7 +413,9 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 								onMessage(front)
 							}()
 						} else {
-							onMessage(front)
+							if front.ActionName != "" {
+								onMessage(front)
+							}
 						}
 
 					}
@@ -377,7 +427,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 			}
 			if !strings.Contains(msg, "[object") {
 
-				//log.Printf("Received: %s", substr(msg, 16, len(msg)))
+				//log.Println(msg)
 			}
 
 		}
@@ -399,7 +449,7 @@ func (client *BiliClient) TraceStream(room int, dst0 string, onlyAudio ...bool) 
 	if len(onlyAudio) == 0 {
 		onlyAudio = append(onlyAudio, false)
 	}
-	var stream = client.GetLiveStream(room, onlyAudio[0])
+	var stream = client.GetLiveStream(room, "fmp4", onlyAudio[0])
 	var ticker = time.NewTicker(time.Second * 2)
 	var dst, _ = os.Create(dst0)
 	writer := bufio.NewWriter(dst)
@@ -431,5 +481,37 @@ func (client *BiliClient) TraceStream(room int, dst0 string, onlyAudio ...bool) 
 				}
 			}
 		}
+	}
+}
+
+func PrintLiveMsg(action FrontLiveAction) {
+	var medalTag = ""
+	if action.MedalName != "" {
+		medalTag = fmt.Sprintf("[%s]", action.MedalName)
+	}
+	var levelTag = ""
+	if action.MedalLevel != 0 {
+		levelTag = fmt.Sprintf("[LV%d]", action.MedalLevel)
+	}
+	if action.ActionName == "msg" {
+		fmt.Printf("%s%s[%s]   %s\n", medalTag, levelTag, action.FromName, action.Extra)
+	}
+	if action.ActionName == "gift" {
+		var giftName = action.Extra
+		if giftName == "" {
+			giftName = action.GiftName
+		}
+		if action.Extra == "" {
+			fmt.Printf("[%s]  投喂了%d个 %s   %f元\n", action.FromName, action.GiftAmount, giftName, action.GiftPrice)
+		} else {
+			//Extra里第一个是盲盒名字，第二个是盲盒价格，逗号分隔
+			//GiftName和GiftPrice是爆出来的礼物的信息
+
+			fmt.Printf("%s  %ss  [%s]  打开了%d个 %s 爆出%s   %f元\n", medalTag, levelTag, action.FromName, action.GiftAmount, giftName, action.GiftName, action.GiftPrice)
+		}
+
+	}
+	if action.ActionName == "enter" {
+		//fmt.Printf("[%s] 进入直播间\n", action.FromName)
 	}
 }

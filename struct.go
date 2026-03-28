@@ -677,3 +677,9 @@ type Collection struct {
 	Type  string
 	UID   int64
 }
+
+type ChargeInfo struct {
+	Name  string
+	Price float64
+	Count int
+}

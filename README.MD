@@ -27,6 +27,7 @@ func (client BiliClient) GetFansClub(liver string, delay int, onError func(msg s
 func (client BiliClient) GetOnline(room string, liver string){} []LiveUser //获取直播间在线用户
 func (client BiliClient) GetLiveStream(room string){} string //获取直播流
 func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveAction), onChange func(state string)) {} //当直播间有消息或者状态改变时会触发回调
+func (client BiliClient) GetHistory(room int) []FrontLiveAction //获取直播间历史弹幕
 ~~~
 
 
@@ -51,9 +52,11 @@ func (client *BiliClient) GetStats(uid int64){} map[string]int //获取用户稿
 func (client *BiliClient) GetLocation(){} Location //获取当前ip信息
 func (client *BiliClient) GetLocation(ip string){} Location //获取指定ip信息
 func (client *BiliClient) GetArticle(cv int64) Archive{} //获取专栏信息和内容
+func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, uid int64, ret ...bool) []Video //获取收藏集内容
+func (client *BiliClient) SearchUser(keyword string) []User //关键词搜索用户
 ~~~
 
-具体用法参考main.test.go
+README可能不全 ，具体用法参考main.test.go
 
 # Referer
 接口文档：[bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
