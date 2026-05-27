@@ -5,7 +5,6 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math"
 	"math/rand"
@@ -17,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	json "github.com/bytedance/sonic"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/jhump/protoreflect/dynamic"
@@ -117,6 +118,7 @@ type JsonType struct {
 	array []interface{}
 	v     bool
 	m     map[string]interface{}
+	a     any
 }
 
 func getInt(obj interface{}, path string) int {
@@ -134,7 +136,16 @@ func getArray(obj interface{}, path string) []interface{} {
 func getBool(obj interface{}, path string) bool {
 	return getObject(obj, path, "bool").v
 }
+func getFloat64(obj interface{}, path string) float64 {
+	return getObject(obj, path, "float64").f64
+}
 func getObject(obj interface{}, path string, typo string) JsonType {
+	if reflect.TypeOf(obj).Kind() == reflect.String {
+		json.Unmarshal([]byte(obj.(string)), &obj)
+	}
+	if reflect.TypeOf(obj).String() == "[]uint8" {
+		json.Unmarshal(obj.([]uint8), &obj)
+	}
 	var array = strings.Split(path, ".")
 	inner, ok := obj.(map[string]interface{})
 	if !ok {
@@ -168,6 +179,9 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 					if typo == "int64" {
 						st.i64 = int64(value.(float64))
 					}
+					if typo == "float64" {
+						st.f64 = value.(float64)
+					}
 				}
 				if t.Kind() == reflect.Slice {
 					if typo == "array" {
@@ -180,6 +194,7 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 				if t.Kind() == reflect.Map {
 					st.m = value.(map[string]interface{})
 				}
+				st.a = value
 			}
 
 			return st
@@ -192,6 +207,10 @@ func getObject(obj interface{}, path string, typo string) JsonType {
 		}
 	}
 	return st
+}
+func toJSON(obj interface{}) string {
+	marshal, _ := json.Marshal(obj)
+	return string(marshal)
 }
 func btoi(b bool) int {
 	return int(map[bool]int{true: 1, false: 0}[b])
@@ -273,7 +292,7 @@ func getAurora(uid uint64) string {
 	return encoded
 }
 func getFawkes() string {
-	msg := dynamic.NewMessage(protoMap[ProtoType.Metadata_FawkesReq])
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.Metadata_FawkesReq])
 	msg.TrySetFieldByName("appkey", "android")
 	msg.TrySetFieldByName("env", "prod")
 	msg.TrySetFieldByName("session_id", randomHex(8))
@@ -281,7 +300,7 @@ func getFawkes() string {
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 func getMetadata() string {
-	msg := dynamic.NewMessage(protoMap[ProtoType.Metadata])
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.Metadata])
 	msg.TrySetFieldByName("mobi_app", "android")
 	msg.TrySetFieldByName("build", 8430300)
 	msg.TrySetFieldByName("channel", "alifenfa")
@@ -299,7 +318,7 @@ func getFP() string {
 	return randomHex(64)
 }
 func getDevice(buvid string, fp string) string {
-	msg := dynamic.NewMessage(protoMap[ProtoType.Device])
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.Device])
 	msg.TrySetFieldByName("app_id", 1)
 	msg.TrySetFieldByName("build", 7420400)
 	msg.TrySetFieldByName("buvid", buvid)
@@ -318,7 +337,6 @@ func getDevice(buvid string, fp string) string {
 	msg.TrySetFieldByName("guest_id", "")
 	bytes, _ := msg.Marshal()
 	return base64.StdEncoding.EncodeToString(bytes)
-
 }
 func randomHex(length int) string {
 	var table = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"}

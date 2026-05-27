@@ -104,6 +104,34 @@ func (client *BiliClient) SendMessage(msg string, room int, onResponse func(stri
 	}
 }
 
+func (client *BiliClient) GetRoomInfo(opt struct {
+	UID  int64
+	Room int
+}) RoomInfo {
+	var room = opt.Room
+	if int64(opt.Room)+opt.UID == 0 {
+		return RoomInfo{}
+	}
+	if room == 0 {
+		res, _ := client.Resty.R().Get("https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid=" + toString(opt.UID))
+		room = getInt(res.Body(), "data.roomid")
+	}
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v1/index/getRoomBaseInfo?req_biz=web_room_componet&room_ids=%d", room))
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	var begin, _ = time.Parse(getString(obj, fmt.Sprintf("data.by_room_ids.%d.live_time", room)), time.DateTime)
+	return RoomInfo{
+		UID:    getInt64(obj, fmt.Sprintf("data.by_room_ids.%d.uid", room)),
+		UName:  getString(obj, fmt.Sprintf("data.by_room_ids.%d.uname", room)),
+		Title:  getString(obj, fmt.Sprintf("data.by_room_ids.%d.title", room)),
+		Area:   getString(obj, fmt.Sprintf("data.by_room_ids.%d.area_name", room)),
+		AreaID: getInt(obj, fmt.Sprintf("data.by_room_ids.%d.area_id", room)),
+		Cover:  getString(obj, fmt.Sprintf("data.by_room_ids.%d.cover", room)),
+		Begin:  begin,
+		Room:   room,
+	}
+}
+
 func (client *BiliClient) GetHistory(room int) []FrontLiveAction {
 
 	var array []FrontLiveAction
@@ -188,14 +216,17 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 		HandshakeTimeout: 45 * time.Second,
 	}
 	var host = liveInfo.Data.HostList[0].Host
-	host = "ali-sh-live-comet-08.chat.bilibili.com"
+	//host = "ali-sh-live-comet-08.chat.bilibili.com"
 	u := url.URL{Scheme: "wss", Host: host + ":2245", Path: "/sub"}
 	var header = http.Header{}
 	header.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 	c, _, err := dialer.Dial(u.String(), header)
+	if err != nil {
+
+	}
 	go func() {
 		var cer = Certificate{}
-		//cer.Uid = client.selfUID()
+		cer.Uid = client.selfUID()
 		id, _ := strconv.Atoi(room)
 		cer.RoomId = id
 		cer.Type = 2
@@ -268,6 +299,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 				front.Time = time.Now()
 				if strings.Contains(obj, "DANMU_MSG") && !strings.Contains(obj, "RECALL_DANMU_MSG") { // 弹幕
 					action.ActionName = "msg"
+					action.Time = time.Unix(int64(text.Info[9].(map[string]interface{})["ts"].(float64)), 0)
 					action.Hash = text.Info[0].([]interface{})[7].(string)
 					action.FromName = text.Info[2].([]interface{})[1].(string)
 					e1, ok := text.Info[0].([]interface{})[13].(map[string]interface{})
@@ -297,6 +329,7 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					if strings.Contains(action.Extra, "[") {
 						time.Now()
 					}
+					action.Mirror = getBool(o, "is_mirror")
 					if ok {
 						user, exists := value["user"].(map[string]interface{})
 						if exists {
@@ -343,10 +376,10 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					front.MedalColor = fmt.Sprintf("#%06X", info.Data.Medal.Color)
 					price := float64(GiftPrice[info.Data.GiftName]) * float64(info.Data.Num)
 					result, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", price), 64)
-					action.GiftPrice = float32(result)
+					action.GiftPrice = float64(result)
 					if price == 0 {
 						price = float64(info.Data.Price) / 1000 * float64(info.Data.Num)
-						action.GiftPrice = float32(price)
+						action.GiftPrice = float64(price)
 					}
 					action.GiftAmount = int16(info.Data.Num)
 					if info.Data.Parent.GiftName != "" {
@@ -376,26 +409,19 @@ func (client BiliClient) TraceLive(room string, onMessage func(action FrontLiveA
 					action.FromName = sc.Data.UserInfo.Uname
 					action.FromId = sc.Data.Uid
 					result, _ := strconv.ParseFloat(fmt.Sprintf("%.2f", sc.Data.Price), 64)
-					action.GiftPrice = float32(result)
+					action.GiftPrice = float64(result)
 
 					action.GiftAmount = 1
 					action.Extra = sc.Data.Message
-				} else if strings.Contains(obj, "GUARD_BUY") { //上舰
-					var guard = GuardInfo{}
-					json.Unmarshal(msgData, &guard)
-					action.FromId = guard.Data.Uid
+				} else if text.Cmd == "USER_TOAST_MSG_V2" {
 					action.ActionName = "guard"
-					action.FromName = guard.Data.Username
-					action.GiftName = guard.Data.GiftName
-					switch action.GiftName {
-					case "舰长":
-						action.GiftPrice = float32(138 * guard.Data.Num)
-					case "提督":
-						action.GiftPrice = float32(1998 * guard.Data.Num)
-					case "总督":
-						action.GiftPrice = float32(19998 * guard.Data.Num)
-					}
-
+					action.FromId = getInt64(msgData, "data.sender_uinfo.uid")
+					action.FromName = getString(msgData, "data.sender_uinfo.base.name")
+					action.GiftName = getString(msgData, "data.guard_info.role_name")
+					action.GiftAmount = int16(getInt(msgData, "data.pay_info.num"))
+					action.GiftPrice = getFloat64(msgData, "data.pay_info.price") / 1000.0
+					action.Time = time.UnixMilli(getInt64(msgData, "data.send_time"))
+					log.Println(action)
 				} else if text.Cmd == "WATCHED_CHANGE" {
 					var obj = Watched{}
 					json.Unmarshal(msgData, &obj)
@@ -494,7 +520,11 @@ func PrintLiveMsg(action FrontLiveAction) {
 		levelTag = fmt.Sprintf("[LV%d]", action.MedalLevel)
 	}
 	if action.ActionName == "msg" {
-		fmt.Printf("%s%s[%s]   %s\n", medalTag, levelTag, action.FromName, action.Extra)
+		var mirrorText = ""
+		if action.Mirror {
+			mirrorText = "跨房"
+		}
+		fmt.Printf("%s%s[%s] [%s]  %s\n", medalTag, levelTag, action.FromName, mirrorText, action.Extra)
 	}
 	if action.ActionName == "gift" {
 		var giftName = action.Extra

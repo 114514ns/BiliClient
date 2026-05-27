@@ -156,25 +156,13 @@ func (client *BiliClient) GetOnline(room string, liver string) []LiveUser {
 }
 
 // onlyAudio为true时，只返回flv
-// 账号未登录时，只能返回ts视频流
-// 登录后，可以返回ts和fmp4
+// 支持ts和fmp4，无需登录
 func (client *BiliClient) GetLiveStream(room int, container string, onlyAudio ...bool) string {
 
-	var containerIndex = 0
-	if container == "fmp4" {
-		containerIndex = 1
+	if container != "fmp4" && container != "ts" {
+		container = "ts"
 	}
 
-	if client.UID == 0 {
-		res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/playUrl?cid=%d&platform=h5&qn=25000", room))
-		var obj map[string]interface{}
-		json.Unmarshal(res.Body(), &obj)
-		if len(getArray(obj, "data.durl")) > 0 {
-			return getString(getArray(obj, "data.durl")[0], "url")
-		}
-	}
-
-	now := time.Now()
 	if len(onlyAudio) == 0 {
 		onlyAudio = append(onlyAudio, false)
 	}
@@ -194,24 +182,9 @@ func (client *BiliClient) GetLiveStream(room int, container string, onlyAudio ..
 
 	}
 
-	uri, _ := url.Parse(fmt.Sprintf("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?only_audio=%d&qn=25000&protocol=0,1&format=0,1,2&codec=0,1,2&web_location=444.8&room_id="+strconv.Itoa(room), btoi(onlyAudio[0])))
-	signed, _ := client.WBI.SignQuery(uri.Query(), now)
-	res, _ := client.Resty.R().Get("https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo?" + signed.Encode())
-	var s = LiveStreamResponse{}
-	json.Unmarshal(res.Body(), &s)
-	stream := s.Data.PlayurlInfo.Playurl.Stream
-	if stream != nil {
-		//Format[0]是ts格式，可以直接拿来拼接，Format[1]是fmp4，需要先把ext-x-map拼到每一个分片前面，好像还有点问题
-		obj := stream[len(stream)-1].Format[containerIndex].Codec[len(stream[len(stream)-1].Format[containerIndex].Codec)-1]
-		if obj.UrlInfo[0].Host+obj.BaseUrl+obj.UrlInfo[0].Extra == "" {
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://app.bilibili.com/x/car/player/playurl?aid=%d&channel=website&cid=&is_preview=0&otype=live&qn=10000", room))
 
-		}
-		return obj.UrlInfo[0].Host + obj.BaseUrl + obj.UrlInfo[0].Extra
-	} else {
-
-	}
-
-	return ""
+	return getArray(res.Body(), fmt.Sprintf("data.live_stream.%s", container))[0].(string)
 
 }
 func (client *BiliClient) GetAreaLiveByPage(area int, page int) []AreaLiver {

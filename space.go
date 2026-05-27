@@ -7,9 +7,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	json "github.com/bytedance/sonic"
+	"github.com/google/uuid"
 	"github.com/jhump/protoreflect/dynamic"
 )
 
@@ -43,27 +45,69 @@ type Dynamic struct {
 	ForwardFrom int64
 	RawResponse string
 	Forwarded   bool
+	Emotes      string
 
 	View     int
 	Danmakus int
 }
-type Comment struct {
+type Reply struct {
 	ID      int64
 	UName   string
 	Face    string
 	UID     int64
 	Text    string
 	Time    time.Time
-	Like    int
+	Likes   int
 	Replies int
-	Reply   []Comment
+	Reply   []Reply
 	ReplyID int64
 	Type    int
 	OID     int64
 	Root    int64
+	Images  []string
+	Emotes  map[string]string
+	Member  bool
+	Level   int8
+	CardBg  *struct {
+		ID     int
+		Num    int
+		Color  string
+		Image  string
+		Prefix string
+		Name   string
+	}
+	Medal *struct {
+		Name  string
+		Level int8
+	}
+	Pendant *struct {
+		ID    int
+		Name  string
+		Image string
+	}
+	Mention interface{}
 }
 
+var emptyCardBg = struct {
+	ID     int
+	Num    int
+	Color  string
+	Image  string
+	Prefix string
+	Name   string
+}{}
+var emptyMedal = struct {
+	Name  string
+	Level int8
+}{}
+var emptyPendant = struct {
+	ID    int
+	Name  string
+	Image string
+}{}
+
 type Article struct {
+	ID        int
 	UID       int64
 	UName     string
 	Title     string
@@ -77,6 +121,7 @@ type Article struct {
 	Tags      string
 	DynamicID int64
 	CreatedAt time.Time
+	Images    string
 }
 type Location struct {
 	Address  string
@@ -102,6 +147,7 @@ type User struct {
 	Like        uint
 	Verify      string
 	RawResponse string
+	Announce    string
 }
 
 type ActionItem struct {
@@ -125,7 +171,7 @@ func (client *BiliClient) GetFavList(user string, page int) map[string]string {
 }
 
 // 获取合集
-func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
+func (client *BiliClient) getUserCollection0(uid int64, page int) []Collection {
 	var url = fmt.Sprintf("https://api.bilibili.com/x/polymer/web-space/seasons_series_list?mid=%d&page_size=20&page_num=%d", uid, page)
 
 	var u0, _ = url2.Parse(url)
@@ -145,6 +191,7 @@ func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
 		c.Title = getString(item, "meta.name")
 		c.Type = "season"
 		c.ID = getInt64(item, "meta.season_id")
+		c.Count = getInt(item, "meta.totsl")
 		c.UID = uid
 
 		m = append(m, c)
@@ -155,6 +202,7 @@ func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
 		c.Type = "series"
 		c.ID = getInt64(item, "meta.series_id")
 		c.UID = uid
+		c.Count = getInt(item, "meta.totsl")
 		m = append(m, c)
 	}
 
@@ -162,16 +210,35 @@ func (client *BiliClient) GetUserCollection(uid int64, page int) []Collection {
 
 }
 
+func (client *BiliClient) GetUserCollection(uid int64) []Collection {
+	var dst []Collection
+	var page = 1
+	for {
+		var a = len(dst)
+		dst = append(dst, client.getUserCollection0(uid, page)...)
+		if len(dst)-a != 20 {
+			break
+		} else {
+			page++
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+	return dst
+}
+
 // 获取合集内容
-func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, uid int64, ret ...bool) ([]Video, string) {
+func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, uid int64, ret ...bool) ([]Video, string, string) {
 	var prefix = "https://api.bilibili.com/x/series/archives"
 
 	var p = "series_id"
 
 	if typo == "season" {
-		prefix = "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+		//prefix = "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+		prefix = "https://api.bilibili.com/x/space/seasons/archives/list"
 		p = "season_id"
 	}
+
+	var desc = ""
 
 	var u = fmt.Sprintf("%s?mid=%d&%s=%d&ps=%d&pn=%d&sort_reverse=false&sort=desc", prefix, uid, p, id, 20, page)
 	if typo == "season" {
@@ -180,13 +247,13 @@ func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, ui
 	}
 	var u0, _ = url2.Parse(u)
 	query, _ := client.WBI.SignQuery(u0.Query(), time.Now())
-	res, _ := client.Resty.R().Get(prefix + "?" + query.Encode())
+	res, _ := client.Resty.R().SetHeader("Cookie", fmt.Sprintf("buvid3=%sinfoc", uuid.New())).Get(prefix + "?" + query.Encode())
 	var obj map[string]interface{}
 
 	json.Unmarshal(res.Body(), &obj)
 
 	var m = make([]Video, 0)
-
+	desc = getString(obj, "data.meta.description")
 	for _, item := range getArray(obj, "data.archives") {
 		var v Video
 		v.BV = getString(item, "bvid")
@@ -204,9 +271,11 @@ func (client *BiliClient) GetCollectionItems(id int64, typo string, page int, ui
 		var o map[string]interface{}
 		json.Unmarshal(r0.Body(), &o)
 		title = getString(o, "data.meta.name")
+
 	}
+
 	if typo != "" || len(ret) != 0 {
-		return m, title
+		return m, title, desc
 	} else {
 		return client.GetCollectionItems(id, "season", page, uid, true)
 	}
@@ -273,9 +342,12 @@ func (client *BiliClient) GetDynamicsByUser(user int64, includeForward bool, off
 }
 
 // 根据oid获取动态
-func (client *BiliClient) GetDynamicByOID(oid int64) []Dynamic {
-	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/detail?build=11705&platform=web&device=linux&mobi_app=pc_electron&id=" + toString(oid))
+func (client *BiliClient) GetDynamicDetail(oid int64) []Dynamic {
+	parse, _ := url2.Parse("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/detail?build=11705&platform=web&device=linux&mobi_app=pc_electron&id=" + toString(oid))
+	newQuery, _ := client.WBI.SignQuery(parse.Query(), time.Now())
+	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/detail?" + newQuery.Encode())
 	var obj map[string]interface{}
+	fmt.Println(res.String())
 	json.Unmarshal(res.Body(), &obj)
 	archives := parseDynamic0(obj["data"].(map[string]interface{})["item"])
 	return archives
@@ -311,6 +383,14 @@ func parseDynamic0(m interface{}) []Dynamic {
 			dynamic.Top = getBool(i2, "module_author.is_top")
 		case "MODULE_TYPE_DESC":
 			dynamic.Text = getString(i2, "module_desc.text")
+			var emotes = make(map[string]string)
+			for _, i := range getArray(i2, "module_desc.rich_text_nodes") {
+				if getString(i, "type") == "RICH_TEXT_NODE_TYPE_EMOJI" {
+					emotes[getString(i, "text")] = getString(i, "emoji.icon_url")
+				}
+			}
+			marshal, _ := json.Marshal(emotes)
+			dynamic.Emotes = string(marshal)
 
 		case "MODULE_TYPE_DYNAMIC":
 			var images []string
@@ -369,21 +449,21 @@ func parseDynamic(item interface{}, isFirst bool, includeForward bool) []Dynamic
 	}
 	return result
 }
-func parseComment(reply ReplyInternalResponse) Comment {
-	var comment = Comment{}
+func parseComment(reply ReplyInternalResponse) Reply {
+	var comment = Reply{}
 	comment.UID = reply.Mid
 	comment.Text = reply.Content.Message
 	comment.UName = reply.Member.Uname
 	comment.Face = reply.Member.Avatar
 	comment.ReplyID = reply.ReplyID
-	comment.Like = reply.Like
+	comment.Likes = reply.Like
 
 	comment.Replies = len(reply.Replies)
 	comment.Time = time.Unix(int64(reply.Ctime), 0)
 	return comment
 }
-func parseRPCComment(obj interface{}) Comment {
-	var comment = Comment{}
+func parseRPCComment(obj interface{}) Reply {
+	var comment = Reply{}
 	comment.ID = toInt64(getString(obj, "id"))
 	comment.UID = toInt64(getString(obj, "mid"))
 	comment.OID = toInt64(getString(obj, "oid"))
@@ -392,9 +472,9 @@ func parseRPCComment(obj interface{}) Comment {
 	comment.UName = getString(obj, "member.name")
 	comment.Face = getString(obj, "member.face")
 	reply, ok := obj.(map[string]interface{})["replies"].([]interface{})
-	comment.Reply = make([]Comment, 0)
+	comment.Reply = make([]Reply, 0)
 	if getString(obj, "like") != "" {
-		comment.Like = int(toInt64(getString(obj, "like")))
+		comment.Likes = int(toInt64(getString(obj, "like")))
 	}
 	if getString(obj, "count") != "" {
 		comment.Replies = int(toInt64(getString(obj, "count")))
@@ -407,31 +487,73 @@ func parseRPCComment(obj interface{}) Comment {
 		}
 
 	}
-	comment.ReplyID = toInt64(getString(obj, "id"))
+	comment.ReplyID = toInt64(getString(obj, "root"))
+	for _, i := range getArray(obj, "content.pictures") {
+		comment.Images = append(comment.Images, getString(i, "imgSrc"))
+	}
+	comment.Mention = getObject(obj, "content.atNameToMid", "m").m
+	var emotes = make(map[string]string)
+	for k, v := range getObject(obj, "content.emotes", "").m {
+		emotes[k] = getString(v, "url")
+	}
+	comment.Emotes = emotes
+	comment.Level = int8(toInt(getString(obj, "member.level")))
+	comment.Member = getString(obj, "member.vipType") == "1"
+
+	var cardBg = (getObject(obj, "memberV2.userSailing.cardBg", "m").m)
+	comment.CardBg = &emptyCardBg
+	comment.CardBg.Num = toInt(getString(cardBg, "fan.number"))
+	comment.CardBg.Prefix = getString(cardBg, "fan.numPrefix")
+	comment.CardBg.Color = getString(cardBg, "fan.color")
+	comment.CardBg.Name = getString(cardBg, "name")
+	comment.CardBg.ID = toInt(getString(cardBg, "id"))
+	comment.CardBg.Image = getString(cardBg, "image")
+	if comment.CardBg.Num == 0 {
+		comment.CardBg = nil
+	}
+	var pandent = getObject(obj, "memberV2.userSailing.pendent", "m").m
+	comment.Pendant = &emptyPendant
+	comment.Pendant.Name = getString(pandent, "name")
+	comment.Pendant.Image = getString(pandent, "image")
+	comment.Pendant.ID = getInt(pandent, "id")
+
+	if comment.Pendant.Name == "" {
+		comment.Pendant = nil
+	}
+
+	var medal = getObject(obj, "memberV2.medal", "m").m
+	comment.Medal = &emptyMedal
+	comment.Medal.Name = getString(medal, "medal_name")
+	comment.Medal.Level = int8(getInt(medal, "level"))
+
+	if comment.Medal.Name == "" {
+		comment.Medal = nil
+	}
+
 	return comment
 
 }
-func (client *BiliClient) GetComment(oid int64, cursor string, type0 int, mode int) ([]Comment, string) {
+func (client *BiliClient) GetComment(oid int64, cursor string, type0 int, mode int) ([]Reply, string) {
 	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/wbi/main?oid=%d&type=%d&mode=%d&pagination_str=%s", oid, type0, mode, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
 	url, _ := url2.Parse(u)
 	signed, _ := client.WBI.SignQuery(url.Query(), time.Now())
 	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/v2/reply/wbi/main?" + signed.Encode())
 	obj := CommentResponse{}
 	json.Unmarshal(res.Body(), &obj)
-	var list = make([]Comment, 0)
+	var list = make([]Reply, 0)
 	for _, reply := range obj.Data.Replies {
-		var comment = Comment{}
+		var comment = Reply{}
 		comment.UID = reply.Mid
 		comment.Text = reply.Content.Message
 		comment.ReplyID = reply.ReplyID
 		comment.UName = reply.Member.Uname
 		comment.Face = reply.Member.Avatar
-		comment.Like = reply.Like
+		comment.Likes = reply.Like
 		comment.ID = reply.ReplyID
 		comment.Type = type0
 		comment.Replies = reply.Count
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
-		comment.Reply = make([]Comment, 0)
+		comment.Reply = make([]Reply, 0)
 		if comment.Replies == len(reply.Replies) {
 			for _, response := range reply.Replies {
 				var sub = parseComment(response)
@@ -472,9 +594,9 @@ const (
 )
 
 // 获取评论
-func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sort ...ReplySort) ([]Comment, string) {
+func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sort ...ReplySort) ([]Reply, string) {
 
-	var jsonStr = `
+	var template = `
 		{
 		    "oid": "%d",
 		    "type": "%d",
@@ -491,8 +613,8 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sor
 	if len(sort) > 0 {
 		mode = string(sort[0])
 	}
-	var processed = fmt.Sprintf(jsonStr, oid, type0, mode, cursor)
-	msg := dynamic.NewMessage(protoMap[ProtoType.Reply_MainListReq])
+	var processed = fmt.Sprintf(template, oid, type0, mode, cursor)
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.Reply_MainListReq])
 	msg.UnmarshalJSON([]byte(processed))
 	payload, _ := msg.Marshal()
 
@@ -503,7 +625,7 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sor
 	var obj map[string]interface{}
 	json.Unmarshal(res.Body(), &obj)
 
-	var array []Comment
+	var array []Reply
 	var gotCursor = getString(obj, "paginationReply.nextOffset")
 
 	if obj["replies"] == nil {
@@ -520,7 +642,7 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sor
 				subs, of := client.GetReply(oid, o.ID, offset, type0)
 				offset = of
 				if len(subs) > 0 {
-					array = append(array, subs...)
+					//array = append(array, subs...)
 					o.Reply = append(o.Reply, subs...)
 				}
 				if len(subs) == 0 || offset == "" {
@@ -528,9 +650,12 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sor
 				}
 			}
 		} else if len(o.Reply) != 0 {
-			for _, comment := range o.Reply {
-				array = append(array, comment)
-			}
+			/*
+				for _, comment := range o.Reply {
+					array = append(array, comment)
+				}
+
+			*/
 		}
 
 		array = append(array, o)
@@ -545,7 +670,7 @@ func (client *BiliClient) GetCommentRPC(oid int64, cursor string, type0 int, sor
 }
 
 // 获取二级评论
-func (client *BiliClient) GetReplyRPC(oid int64, root int64, type0 int, sort ...ReplySort) ([]Comment, string) {
+func (client *BiliClient) GetReplyRPC(oid int64, root int64, type0 int, sort ...ReplySort) ([]Reply, string) {
 	var jsonStr = `
 		{
 		    "oid": %d,
@@ -556,7 +681,7 @@ func (client *BiliClient) GetReplyRPC(oid int64, root int64, type0 int, sort ...
 		}
 		`
 	var processed = fmt.Sprintf(jsonStr, oid, type0, root)
-	msg := dynamic.NewMessage(protoMap[ProtoType.Reply_DetailListReq])
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.Reply_DetailListReq])
 	err := msg.UnmarshalJSON([]byte(processed))
 	if err != nil {
 		return nil, ""
@@ -572,19 +697,20 @@ func (client *BiliClient) GetReplyRPC(oid int64, root int64, type0 int, sort ...
 }
 
 // 获取二级评论
-func (client *BiliClient) GetReply(oid int64, root int64, cursor string, type0 int) ([]Comment, string) {
-	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/detail?oid=%d&type=%d&root=%d&web_location=333.1365&pagination_str=%s", oid, type0, root, fmt.Sprintf("{\"offset\":\"%s\"}", cursor))
+func (client *BiliClient) GetReply(oid int64, root int64, cursor string, type0 int) ([]Reply, string) {
+	u := fmt.Sprintf("https://api.bilibili.com/x/v2/reply/detail?oid=%d&type=%d&root=%d&web_location=333.1365&pagination_str=%s", oid, type0, root, url2.QueryEscape(fmt.Sprintf("{\"offset\":\"%s\"}", cursor)))
 	obj := CommentResponse{}
 	res, _ := client.Resty.R().Get(u)
 	json.Unmarshal(res.Body(), &obj)
-	var list = make([]Comment, 0)
-	for _, reply := range obj.Data.Root.Replies {
-		var comment = Comment{}
+	var list = make([]Reply, 0)
+	var raw = getArray(res.Body(), "data.root.replies")
+	for i, reply := range obj.Data.Root.Replies {
+		var comment = Reply{}
 		comment.UID = reply.Mid
 		comment.Text = reply.Content.Message
 		comment.UName = reply.Member.Uname
 		comment.Face = reply.Member.Avatar
-		comment.Like = reply.Like
+		comment.Likes = reply.Like
 		comment.ID = reply.ReplyID
 		comment.Replies = len(reply.Replies)
 		comment.Time = time.Unix(int64(reply.Ctime), 0)
@@ -592,6 +718,46 @@ func (client *BiliClient) GetReply(oid int64, root int64, cursor string, type0 i
 		comment.ReplyID = root
 		comment.OID = oid
 		comment.Root = root
+		comment.Level = int8(reply.Member.LevelInfo.CurrentLevel)
+		var cardBg = (getObject(raw[i], "member.user_sailing_v2.card_bg", "m").m)
+		comment.CardBg = &emptyCardBg
+		comment.CardBg.Num = getInt(cardBg, "fans.num")
+		comment.CardBg.Prefix = getString(cardBg, "fans.num_prefix")
+		comment.CardBg.Color = getString(cardBg, "fans.num_color")
+		comment.CardBg.Name = getString(cardBg, "name")
+		comment.CardBg.ID = getInt(cardBg, "id")
+		comment.CardBg.Image = getString(cardBg, "image")
+		if comment.CardBg.Num == 0 {
+			comment.CardBg = nil
+		}
+		var pandent = getObject(raw[i], "member.user_sailing_v2.pendent", "m").m
+		comment.Pendant = &emptyPendant
+		comment.Pendant.Name = getString(pandent, "name")
+		comment.Pendant.Image = getString(pandent, "image")
+		comment.Pendant.ID = getInt(pandent, "id")
+
+		if comment.Pendant.Name == "" {
+			comment.Pendant = nil
+		}
+
+		var medal = getObject(raw[i], "member.fans_detail.medal", "m").m
+		comment.Medal = &emptyMedal
+		comment.Medal.Name = getString(medal, "medal_name")
+		comment.Medal.Level = int8(getInt(medal, "level"))
+
+		if comment.Medal.Name == "" {
+			comment.Medal = nil
+		}
+
+		var emotes = make(map[string]string)
+		for k, v := range getObject(raw[i], "content.emotes", "m").m {
+			emotes[k] = getString(v, "url")
+		}
+		for _, j := range getArray(raw[i], "content.pictures") {
+			comment.Images = append(comment.Images, getString(j, "imgSrc"))
+		}
+		comment.Mention = getObject(raw[i], "content.at_name_to_mid_str", "m").m
+		comment.Emotes = (emotes)
 		list = append(list, comment)
 	}
 
@@ -604,17 +770,17 @@ func (client *BiliClient) GetReply(oid int64, root int64, cursor string, type0 i
 }
 
 // 获取二级评论
-func (comment *Comment) GetReply(offset string, client *BiliClient) ([]Comment, string) {
+func (comment *Reply) GetReply(offset string, client *BiliClient) ([]Reply, string) {
 	return client.GetReply(comment.OID, comment.ReplyID, offset, comment.Type)
 }
 
 // 获取评论
-func (archive *Dynamic) GetComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Comment, string) {
+func (archive *Dynamic) GetComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Reply, string) {
 	t := CommentType.Dynamic
 	if archive.BV != "" {
 		t = CommentType.Video
 	}
-	var array []Comment
+	var array []Reply
 	var offset = ""
 	if client.UID == 0 {
 		array, offset = client.GetCommentRPC(archive.CommentID, cursor, archive.CommentType, sort...)
@@ -689,31 +855,50 @@ func (client *BiliClient) GetStats(uid int64) map[string]int {
 
 // 获取比较详细的用户信息
 func (client *BiliClient) GetUser(id int64) (User, int) {
-	res, _ := client.Resty.R().Get("https://api.bilibili.com/x/web-interface/card?mid=" + toString(id))
-	var obj interface{}
-	json.Unmarshal(res.Body(), &obj)
+	var wg sync.WaitGroup
 	var user = User{}
-	user.UID = id
-	if getInt(obj, "code") == -404 {
-		return user, 3
-	}
-	if getInt(obj, "code") == -352 {
-		return user, 2
-	}
-	if getString(obj, "message") != "OK" {
-		return user, 2
-	}
-	user.UName = getString(obj, "data.card.name")
+	wg.Add(2)
+	wg.Go(func() {
+		res, _ := client.Resty.R().Get("https://api.bilibili.com/x/web-interface/card?mid=" + toString(id))
+		var obj interface{}
+		json.Unmarshal(res.Body(), &obj)
+		user.UID = id
+		/*
+			if getInt(obj, "code") == -404 {
+				return user, 3
+			}
+			if getInt(obj, "code") == -352 {
+				return user, 2
+			}
+			if getString(obj, "message") != "OK" {
+				return user, 2
+			}
 
-	user.Level = int8(getInt64(obj, "data.card.level_info.current_level"))
-	user.Face = getString(obj, "data.card.face")
-	user.Bio = getString(obj, "data.card.sign")
-	user.Archives = uint(getInt(obj, "data.archive_count"))
-	user.Like = uint(getInt(obj, "data.like_num"))
-	user.Fans = uint(getInt(obj, "data.follower"))
-	user.Verify = strings.Replace(getString(obj, "data.card.official_verify.desc"), "、", ",", 1145)
-	user.VerifyType = int8(getInt(obj, "data.card.official_verify.type"))
-	user.RawResponse = res.String()
+		*/
+		user.UName = getString(obj, "data.card.name")
+
+		user.Level = int8(getInt64(obj, "data.card.level_info.current_level"))
+		user.Face = getString(obj, "data.card.face")
+		user.Bio = getString(obj, "data.card.sign")
+		user.Archives = uint(getInt(obj, "data.archive_count"))
+		user.Like = uint(getInt(obj, "data.like_num"))
+		user.Fans = uint(getInt(obj, "data.follower"))
+		user.Verify = strings.Replace(getString(obj, "data.card.official_verify.desc"), "、", ",", 1145)
+		user.VerifyType = int8(getInt(obj, "data.card.official_verify.type"))
+		user.RawResponse = res.String()
+		wg.Done()
+	})
+	wg.Go(func() {
+
+		res, _ := client.Resty.R().Get("https://api.bilibili.com/x/space/notice?mid=" + toString(id))
+		var obj map[string]interface{}
+		json.Unmarshal(res.Body(), &obj)
+		user.Announce = getString(obj, "data")
+
+		wg.Done()
+	})
+
+	wg.Wait()
 	return user, 1
 }
 
@@ -771,11 +956,14 @@ func (client *BiliClient) GetFace(id int64) string {
 
 // 解析专栏
 func (client *BiliClient) GetArticle(cv int64, callback func(string), rawResponse func(string2 string)) Article {
-
+	if cv > 1500000000 {
+		cv = int64(client.Opus2Cid(cv))
+	}
 	//start := time.Now()
 	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/article/view?id=%s", strconv.FormatInt(cv, 10)))
 	//fmt.Println(time.Since(start))
 	article := Article{}
+
 	var obj interface{}
 	if rawResponse != nil {
 		rawResponse(res.String())
@@ -794,6 +982,7 @@ func (client *BiliClient) GetArticle(cv int64, callback func(string), rawRespons
 		}
 		return article
 	} else if code == 0 {
+		article.ID = int(cv)
 		article.UID = getInt64(obj, "data.author.mid")
 		article.UName = getString(obj, "data.author.name")
 		article.CreatedAt = time.Unix(int64(getInt64(obj, "data.publish_time")), 0)
@@ -814,14 +1003,46 @@ func (client *BiliClient) GetArticle(cv int64, callback func(string), rawRespons
 			}
 			article.Tags = t[:len(t)-1]
 		}
+		for _, v := range getArray(obj, "data.image_urls") {
+			article.Images += v.(string) + ","
+		}
 	} else {
 		if callback != nil {
 			callback("risk")
 		}
 	}
-
 	return article
+}
 
+func (client *BiliClient) GetUserArticle(uid int64, off string) []Article {
+	var dst []Article
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/polymer/web-dynamic/v1/opus/feed/space?host_mid=%d&page=3&offset=%s&type=article", uid, off))
+	var obj map[string]interface{}
+	json.Unmarshal(res.Body(), &obj)
+	for _, i := range getArray(obj, "data.items") {
+		dst = append(dst, Article{
+			DynamicID: toInt64(getString(i, "opus_id")),
+		})
+	}
+	return dst
+}
+
+func (client *BiliClient) Opus2Cid(oid int64) int {
+	var msg = dynamic.NewMessage(ProtoMap[ProtoType.OpusDetailReq])
+	var template = `
+{"oid":%d,"pattern":"outer","share_mode":8}
+`
+	template = fmt.Sprintf(template, oid)
+
+	msg.UnmarshalJSON([]byte(template))
+	payload, e := msg.Marshal()
+	if e != nil {
+		fmt.Println(e)
+	}
+	response, _ := client.Resty.R().SetBody(payload).Post("https://app.bilibili.com/bilibili.app.dynamic.v2.Opus/OpusDetail")
+	var obj map[string]interface{}
+	json.Unmarshal(response.Body(), &obj)
+	return toInt(getString(obj, "opusItem.oid"))
 }
 
 // 需要登录
@@ -856,7 +1077,7 @@ func (client *BiliClient) GetDynamicByUIDRPC(uid int64, page int) ([]Dynamic, bo
 			`
 	var req = fmt.Sprintf(jsonStr, uid, page)
 
-	msg := dynamic.NewMessage(protoMap[ProtoType.DynSpaceReq])
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.DynSpaceReq])
 	err := msg.UnmarshalJSON([]byte(req))
 	//err := msg.UnmarshalJSON([]byte(req))
 	if err != nil {
@@ -887,7 +1108,7 @@ func (client *BiliClient) GetLikeListRPC(oid int64, typo int, rid int64, page in
 		`
 
 	var req = fmt.Sprintf(jsonStr, oid, typo, rid, page)
-	msg := dynamic.NewMessage(protoMap[ProtoType.LikeListReq])
+	msg := dynamic.NewMessage(ProtoMap[ProtoType.LikeListReq])
 	err := msg.UnmarshalJSON([]byte(req))
 	if err != nil {
 		fmt.Println(err)
@@ -975,18 +1196,22 @@ func (client *BiliClient) GetCharge(uid int64) []ChargeInfo {
 }
 
 func (client *BiliClient) SearchUser(keyword string) []User {
-	res, _ := client.Resty.R().Get(fmt.Sprintf("https://api.bilibili.com/x/web-interface/search/type?category_id=&search_type=bili_user&ad_resource=5646&__refresh__=true&_extra=&context=&page=1&page_size=36&order=&from_spmid=333.337&platform=pc&keyword=%s&source_tag=3&gaia_vtoken=&order_sort=0&user_type=0", keyword))
+	res, _ := client.Resty.R().Get(fmt.Sprintf("https://app.bilibili.com/x/v2/car/search/type?keyword=%s&search_type=bili_user", url2.QueryEscape(keyword)))
 	var obj map[string]interface{}
 	json.Unmarshal(res.Body(), &obj)
 	var dst []User
-	for _, i := range getArray(obj, "data.result") {
+	for _, i := range getArray(obj, "data.up_items") {
 		dst = append(dst, User{
 			UID:   getInt64(i, "mid"),
-			UName: getString(i, "uname"),
-			Bio:   getString(i, "usign"),
-			Face:  getString(i, "upmic"),
-			Fans:  uint(getInt(i, "fans")),
+			UName: getString(i, "name"),
+			Bio:   getString(i, "desc"),
+			Face:  getString(i, "face"),
+			Fans:  uint(getInt(i, "fans_count")),
 		})
 	}
 	return dst
+}
+
+func GetArticle() {
+
 }

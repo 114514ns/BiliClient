@@ -44,6 +44,8 @@ type Video struct {
 	RawResponse    string
 	CollectionName string
 	CollectionID   int64
+	Staff          interface{} `gorm:"serializer:json;type:text"`
+	RichText       interface{} `gorm:"serializer:json;type:text"`
 }
 
 func (v *Video) GetStream(client *BiliClient) []Stream {
@@ -94,6 +96,25 @@ func (client *BiliClient) GetVideo(bv string) (result []Video) {
 			tags = tags + getString(tag, "tag_name") + ","
 		}
 		video.Tags = tags
+		if getString(obj, "data.View.ugc_season.title") != "" {
+			video.CollectionName = getString(obj, "data.View.ugc_season.title")
+			video.CollectionID = int64(getInt(obj, "data.View.ugc_season.id"))
+		}
+		var staff []struct {
+			UID   int64  `json:"uid"`
+			Role  string `json:"role"`
+			UName string `json:"uname"`
+		}
+		for _, i2 := range getArray(obj, "data.View.staff") {
+			staff = append(staff, struct {
+				UID   int64  `json:"uid"`
+				Role  string `json:"role"`
+				UName string `json:"uname"`
+			}{UID: getInt64(i2, "mid"), Role: getString(i2, "title"), UName: getString(i2, "name")})
+		}
+		video.Staff = staff
+		video.RichText = getArray(obj, "data.View.desc_v2")
+
 		array = append(array, video)
 	}
 
@@ -129,7 +150,7 @@ func (client *BiliClient) GetVideoByUser(mid int64, page int, byHot bool) (resul
 	}
 	return list
 }
-func (video *Video) getComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Comment, string) {
+func (video *Video) getComments(cursor string, client *BiliClient, sort ...ReplySort) ([]Reply, string) {
 	if client.UID == 0 {
 		return client.GetCommentRPC(video.Aid, cursor, CommentType.Video, sort...)
 	}
@@ -155,7 +176,7 @@ func (client *BiliClient) GetVideoStream(bv string, cid int) []Stream {
 			return []Stream{}
 		}
 	}
-	var url0 = fmt.Sprintf("https://api.bilibili.com/x/player/wbi/playurl?bvid=%s&cid=%d&gaia_source=view-card&isGaiaAvoided=true&qn=32&fnval=4048&try_look=1", bv, cid)
+	var url0 = fmt.Sprintf("https://api.bilibili.com/x/player/wbi/playurl?bvid=%s&cid=%d&gaia_source=view-card&isGaiaAvoided=true&qn=120&fnval=4048&try_look=1", bv, cid)
 	parse, _ := url.Parse(url0)
 	query, _ := client.WBI.SignQuery(parse.Query(), time.Now())
 	res, err := client.Resty.R().Get("https://api.bilibili.com/x/player/wbi/playurl?" + query.Encode())
@@ -275,7 +296,7 @@ func (client *BiliClient) DownloadVideo(stream Stream, dist string, noProxy ...b
 
 	wg.Wait()
 
-	cmd := exec.Command("ffmpeg", "-i", videoFile.Name(), "-i", audioFile.Name(), "-vcodec", "copy", "-acodec", "libopus", dist+"/"+stream.BV+"-"+strconv.Itoa(stream.Cid)+".mp4")
+	cmd := exec.Command("ffmpeg", "-i", videoFile.Name(), "-i", audioFile.Name(), "-vcodec", "copy", "-acodec", "copy", dist+"/"+stream.BV+"-"+strconv.Itoa(stream.Cid)+".mp4")
 	//out, _ := cmd.CombinedOutput()
 	//log.Println(string(out))
 	cmd.Run()
@@ -346,4 +367,7 @@ func (client *BiliClient) SearchVideo(opinion SearchOption) []Video {
 		results = append(results, v)
 	}
 	return results
+}
+
+type Danmaku struct {
 }

@@ -4,14 +4,16 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
-	"github.com/go-resty/resty/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 const (
@@ -76,15 +78,17 @@ type WBI struct {
 	updateCheckerInterval time.Duration
 	lastInitTime          time.Time
 	storage               Storage
+	restyClient           *resty.Client
 }
 
-func NewDefaultWbi() *WBI {
+func NewDefaultWbi(restyClient *resty.Client) *WBI {
 	return &WBI{
 		cookies:        nil,
 		mixinKeyEncTab: _defaultMixinKeyEncTab,
 
 		updateCheckerInterval: 60 * time.Minute,
 		storage:               _defaultStorage,
+		restyClient:           restyClient,
 	}
 }
 
@@ -247,7 +251,7 @@ func (wbi *WBI) doInitWbi() {
 		}
 	}{}
 
-	resp, err := resty.New().R().
+	resp, err := wbi.restyClient.R().
 		SetHeader("Accept", "application/json").
 		SetHeader("Accept-Language", "zh-CN,zh;q=0.9").
 		SetHeader("Origin", "https://www.bilibili.com").
@@ -258,6 +262,9 @@ func (wbi *WBI) doInitWbi() {
 		Get("https://api.bilibili.com/x/web-interface/nav")
 
 	if err != nil {
+		fmt.Println("HTTP_PROXY:", os.Getenv("HTTP_PROXY"))
+		fmt.Println("HTTPS_PROXY:", os.Getenv("HTTPS_PROXY"))
+		fmt.Println("NO_PROXY:", os.Getenv("NO_PROXY"))
 		fmt.Println(err)
 	}
 

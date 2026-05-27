@@ -24,17 +24,19 @@ import (
 )
 
 type ClientOptions struct {
-	HttpProxy       string
-	ProxyUser       string
-	ProxyPass       string
-	RandomUserAgent bool
-	ResetConnection bool
-	NoCookie        bool
-	Retry           int
-	ProxyURL        string
-	AccessKey       string
-	PrintErrorURL   bool
-	PrintErrorStack bool
+	HttpProxy        string
+	ProxyUser        string
+	ProxyPass        string
+	RandomUserAgent  bool
+	ResetConnection  bool
+	NoCookie         bool
+	Retry            int
+	ProxyURL         string
+	AccessKey        string
+	PrintErrorURL    bool
+	PrintErrorStack  bool
+	CookieFetcher    func() string
+	AccessKeyFetcher func() string
 }
 
 type BiliClient struct {
@@ -48,6 +50,8 @@ type BiliClient struct {
 	Internal  struct {
 		RefreshUIDTicker *time.Ticker
 	}
+
+	CookieRefreshDelay int
 }
 type protoType0 struct {
 	Reply_MainListReply   string
@@ -73,7 +77,7 @@ type protoType0 struct {
 }
 
 var ProtoType protoType0
-var protoMap = make(map[string]*desc.MessageDescriptor)
+var ProtoMap = make(map[string]*desc.MessageDescriptor)
 
 var userAgents = []string{
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0",
@@ -147,34 +151,34 @@ func setupClient(client *BiliClient, cookie string) {
 
 			fds, _ := parser.ParseFiles("bilibili/main/community/reply/v1.proto")
 			fd := fds[0]
-			protoMap[ProtoType.Reply_MainListReply] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReply")
-			protoMap[ProtoType.Reply_MainListReq] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReq")
+			ProtoMap[ProtoType.Reply_MainListReply] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReply")
+			ProtoMap[ProtoType.Reply_MainListReq] = fd.FindMessage("bilibili.main.community.reply.v1.MainListReq")
 
-			protoMap[ProtoType.Reply_DetailListReq] = fd.FindMessage("bilibili.main.community.reply.v1.DetailListReq")
-			protoMap[ProtoType.Reply_DetailListReply] = fd.FindMessage("bilibili.main.community.reply.v1.DetailListReply")
+			ProtoMap[ProtoType.Reply_DetailListReq] = fd.FindMessage("bilibili.main.community.reply.v1.DetailListReq")
+			ProtoMap[ProtoType.Reply_DetailListReply] = fd.FindMessage("bilibili.main.community.reply.v1.DetailListReply")
 
 			fds, _ = parser.ParseFiles("bilibili/metadata/fawkes.proto")
-			protoMap[ProtoType.Metadata_FawkesReq] = fds[0].FindMessage("bilibili.metadata.fawkes.FawkesReq")
+			ProtoMap[ProtoType.Metadata_FawkesReq] = fds[0].FindMessage("bilibili.metadata.fawkes.FawkesReq")
 			fds, _ = parser.ParseFiles("bilibili/metadata.proto")
-			protoMap[ProtoType.Metadata] = fds[0].FindMessage("bilibili.metadata.Metadata")
+			ProtoMap[ProtoType.Metadata] = fds[0].FindMessage("bilibili.metadata.Metadata")
 			fds, _ = parser.ParseFiles("bilibili/metadata/device.proto")
-			protoMap[ProtoType.Device] = fds[0].FindMessage("bilibili.metadata.device.Device")
+			ProtoMap[ProtoType.Device] = fds[0].FindMessage("bilibili.metadata.device.Device")
 
 			fds, _ = parser.ParseFiles("bilibili/app/dynamic/v2.proto")
-			protoMap[ProtoType.ReactionListReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.ReactionListReq")
-			protoMap[ProtoType.ReactionListReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.ReactionListReply")
+			ProtoMap[ProtoType.ReactionListReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.ReactionListReq")
+			ProtoMap[ProtoType.ReactionListReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.ReactionListReply")
 
-			protoMap[ProtoType.LikeListReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.LikeListReq")
-			protoMap[ProtoType.LikeListReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.LikeListReply")
+			ProtoMap[ProtoType.LikeListReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.LikeListReq")
+			ProtoMap[ProtoType.LikeListReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.LikeListReply")
 
-			protoMap[ProtoType.DynDetailsReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynDetailsReq")
-			protoMap[ProtoType.DynDetailsReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynDetailsReply")
+			ProtoMap[ProtoType.DynDetailsReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynDetailsReq")
+			ProtoMap[ProtoType.DynDetailsReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynDetailsReply")
 
-			protoMap[ProtoType.OpusDetailReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReq")
-			protoMap[ProtoType.OpusDetailReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReply")
+			ProtoMap[ProtoType.OpusDetailReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailReq")
+			ProtoMap[ProtoType.OpusDetailReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.OpusDetailResp")
 
-			protoMap[ProtoType.DynSpaceReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynSpaceReq")
-			protoMap[ProtoType.DynSpaceReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynSpaceRsp")
+			ProtoMap[ProtoType.DynSpaceReq] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynSpaceReq")
+			ProtoMap[ProtoType.DynSpaceReply] = fds[0].FindMessage("bilibili.app.dynamic.v2.DynSpaceRsp")
 		}
 	}
 	if client.Options.HttpProxy != "" {
@@ -256,6 +260,9 @@ func setupClient(client *BiliClient, cookie string) {
 	client.Resty.OnAfterResponse(func(_ *resty.Client, response *resty.Response) error {
 		url0 := response.Request.URL
 		if strings.Contains(url0, "/bilibili.") {
+			if len(response.Body()) == 0 {
+				time.Now()
+			}
 			var raw = response.Body()[5:]
 			var dist []byte
 			if response.Body()[0:][0] == 0x01 {
@@ -286,7 +293,10 @@ func setupClient(client *BiliClient, cookie string) {
 			if strings.Contains(url0, "Dynamic/DynSpace") {
 				typo = ProtoType.DynSpaceReply
 			}
-			msg := dynamic.NewMessage(protoMap[typo])
+			if strings.Contains(url0, "Opus/OpusDetail") {
+				typo = ProtoType.OpusDetailReply
+			}
+			msg := dynamic.NewMessage(ProtoMap[typo])
 			err = msg.Unmarshal(dist)
 			if err != nil {
 				panic(err)
@@ -300,7 +310,7 @@ func setupClient(client *BiliClient, cookie string) {
 		} else {
 			var obj map[string]interface{}
 			err := json.Unmarshal(response.Body(), &obj)
-			if err == nil {
+			if err == nil && !strings.Contains(response.Request.URL, "x/v2/dm/web/seg.so") {
 				v, ok := obj["code"]
 				if ok {
 					if v.(float64) != 0 {
@@ -334,7 +344,7 @@ func setupClient(client *BiliClient, cookie string) {
 
 	}
 	client.Cookie = cookie
-	client.WBI = NewDefaultWbi()
+	client.WBI = NewDefaultWbi(client.Resty)
 	client.WBI.WithRawCookies(cookie)
 	client.WBI.doInitWbi()
 	client.UID = client.selfUID()
@@ -348,6 +358,28 @@ func setupClient(client *BiliClient, cookie string) {
 			}
 		}
 	}()
+	if client.CookieRefreshDelay == 0 {
+		client.CookieRefreshDelay = 5 * 60
+	}
+	if client.Options.CookieFetcher != nil {
+		client.Cookie = client.Options.CookieFetcher()
+		go func() {
+			for {
+				time.Sleep(time.Second * time.Duration(client.CookieRefreshDelay))
+				client.Cookie = client.Options.CookieFetcher()
+			}
+		}()
+	}
+	if client.Options.AccessKeyFetcher != nil {
+		client.Options.AccessKey = client.Options.AccessKeyFetcher()
+		go func() {
+			for {
+				time.Sleep(time.Second * time.Duration(client.CookieRefreshDelay))
+				client.Options.AccessKey = client.Options.AccessKeyFetcher()
+			}
+		}()
+	}
+
 	client.Address = client.GetLocation().Address
 }
 func (client *BiliClient) Destory() {

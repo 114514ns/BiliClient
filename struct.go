@@ -383,7 +383,7 @@ type LiveAction struct {
 	LiveRoom   string
 	ActionName string
 	GiftName   string
-	GiftPrice  float32
+	GiftPrice  float64
 	GiftAmount int16
 	Extra      string
 	MedalName  string
@@ -392,6 +392,7 @@ type LiveAction struct {
 	HonorLevel int8
 	Hash       string
 	Time       time.Time
+	Mirror     bool
 }
 type FrontLiveAction struct {
 	LiveAction
@@ -401,17 +402,7 @@ type FrontLiveAction struct {
 	GiftPicture string
 	Emoji       map[string]string
 }
-type RoomInfo struct {
-	Data struct {
-		LiveTime     string `json:"live_time"`
-		UID          int    `json:"uid"`
-		Title        string `json:"title"`
-		Area         string `json:"area_name"`
-		AreaId       int    `json:"area_id"`
-		ParentAreaId int    `json:"parent_area_id"`
-		Face         string `json:"user_cover"`
-	} `json:"data"`
-}
+
 type Live struct {
 	Title    string
 	StartAt  int64
@@ -676,10 +667,22 @@ type Collection struct {
 	ID    int64
 	Type  string
 	UID   int64
+	Count int
 }
 
 type ChargeInfo struct {
 	Name  string
 	Price float64
 	Count int
+}
+
+type RoomInfo struct {
+	Room   int
+	UID    int64
+	UName  string
+	Cover  string
+	Area   string
+	AreaID int
+	Begin  time.Time
+	Title  string
 }

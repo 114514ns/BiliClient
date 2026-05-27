@@ -124,14 +124,21 @@ func TestLiveDanmaku(t *testing.T) {
 	//直播websocket消息
 	client := getClient()
 	//client.TraceLive("https://live.bilibili.com/23770996", PrintLiveMsg, nil)
-	client.TraceLive("https://live.bilibili.com/23771189", PrintLiveMsg, nil)
+	client.TraceLive("https://live.bilibili.com/1883943131", PrintLiveMsg, nil)
 
+}
+
+func TestGetRoomInfo(t *testing.T) {
+	PrintJSON(getClient().GetRoomInfo(struct {
+		UID  int64
+		Room int
+	}{UID: 0, Room: 23174842}))
 }
 
 func TestVideoDetail(t *testing.T) {
 	//视频详细信息
 	var client = getClient()
-	var video = client.GetVideo("BV1ypJPzQEj4")
+	var video = client.GetVideo("BV1wKrTBoEDQ")
 	for i, r := range video[0].ParentTitle {
 		fmt.Printf("index=%d, rune=%c, unicode=%U, int=%d\n", i, r, r, r)
 	}
@@ -155,7 +162,7 @@ func TestVideoComment(t *testing.T) {
 	//视频评论区
 	var client = getClient()
 	//var video = client.GetVideoByUser(504140200, 1, true)[0]
-	var video = client.GetVideo("BV1Jx411A7Cz")[0]
+	var video = client.GetVideo("BV1gzzYBVE7e")[0]
 	var off = ""
 	for {
 		comments, off0 := video.getComments(off, client)
@@ -170,19 +177,38 @@ func TestVideoComment(t *testing.T) {
 
 }
 
+func TestGetCommentRPC(t *testing.T) {
+	var client = getClient()
+	var off = ""
+	var dst []Reply
+	for {
+		arr, off0 := client.GetCommentRPC(116605392521146, off, 1, REPLY_SORT_HOT)
+		dst = append(dst, arr...)
+		if off == off0 || off0 == "" {
+			break
+		} else {
+			off = off0
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	marshal, _ := json.Marshal(dst)
+	os.WriteFile("reply.json", marshal, 0666)
+
+}
+
 func TestDynamicComment(t *testing.T) {
 	//获取动态评论内容
 	var client = getClient()
-	dyn, _ := client.GetDynamicsByUser(1437582453, true, "")
-	var dst = []Comment{}
+	dyn, _ := client.GetDynamicsByUser(39922227, true, "")
+	var dst = []Reply{}
 	var off = ""
 	var count = 0
 	for {
-		var array, o = getClient().GetComment(dyn[3].CommentID, off, dyn[3].CommentType, 3)
+		var array, o = client.GetCommentRPC(dyn[16].CommentID, off, dyn[16].CommentType, REPLY_SORT_TIME)
 		off = o
 		time.Sleep(500 * time.Millisecond)
 		for _, comment := range array {
-			var tmp = Comment{}
+			var tmp = Reply{}
 			copier.Copy(&tmp, comment)
 			dst = append(dst, tmp)
 		}
@@ -194,7 +220,11 @@ func TestDynamicComment(t *testing.T) {
 		}
 	}
 	//PrintJSON(dst)
-	if dyn[0].Comments == len(dst) {
+	var sum = len(dst)
+	for _, i := range dst {
+		sum += len(i.Reply)
+	}
+	if dyn[0].Comments == sum {
 		fmt.Println("Count Match!")
 	} else {
 		fmt.Println("Count Not Match!")
@@ -208,7 +238,17 @@ func TestGetLocation(t *testing.T) {
 }
 func TestGetArticle(t *testing.T) {
 	//那两个回调不用管，历史遗留问题
-	PrintJSON(getClient().GetArticle(27148899, nil, nil))
+	PrintJSON(getClient().GetArticle(43750847, nil, nil))
+}
+
+func TestGetUserArticle(t *testing.T) {
+	var client = getClient()
+	article := client.GetUserArticle(504140200, "")
+	for i := range article {
+		article[i] = client.GetArticle(article[i].DynamicID, nil, nil)
+		time.Sleep(2 * time.Millisecond * 500)
+	}
+	PrintJSON(article)
 }
 func TestGetAreas(t *testing.T) {
 	//获取所有直播分区
@@ -290,7 +330,7 @@ func TestSearchVideo(t *testing.T) {
 
 func TestVideoStream(t *testing.T) {
 	//获取视频流
-	array := getClient().GetVideoStream("BV1TMYqzEEa1", 31728668205)
+	array := getClient().GetVideoStream("BV1eySZBGEPV", 0)
 	//audio := array[0]
 	PrintJSON(array)
 }
@@ -312,8 +352,13 @@ func TestSign(t *testing.T) {
 }
 
 func TestGetUserLoaction(t *testing.T) {
-	PrintJSON(getClient().GetUserLocation(3546861088541561))
+	PrintJSON(getClient().GetUserLocation(1879130196))
 
+}
+
+func TestGetUser(t *testing.T) {
+	user, _ := getClient().GetUser(690608691)
+	PrintJSON(user)
 }
 
 func TestGetUserFav(t *testing.T) {
@@ -321,7 +366,7 @@ func TestGetUserFav(t *testing.T) {
 }
 
 func TestGetUserList(t *testing.T) {
-	PrintJSON(getClient().GetUserCollection(82044006, 1))
+	//PrintJSON(getClient().GetUserCollection(82044006, 1))
 }
 
 func TestCharge(t *testing.T) {
@@ -348,7 +393,7 @@ func TestSearchUser(t *testing.T) {
 }
 
 func TestGetDynamicByOID(t *testing.T) {
-	PrintJSON(getClient().GetDynamicByOID(1090223327243403288))
+	PrintJSON(getClient().GetDynamicDetail(1204380156358033412))
 }
 
 func TestBatchGetFace(t *testing.T) {
